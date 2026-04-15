@@ -399,19 +399,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     lon_v = float(pt['lon'])
                     rinde_v = float(pt['rinde'])
                 except (TypeError, ValueError):
-                    print(f"Punto ignorado (lat/lon/rinde invalido): {pt}")
+                    print(f"Punto ignorado (valor invalido): {pt}")
                     continue
                 import math
-                if math.isnan(lat_v) or math.isnan(lon_v):
-                    print(f"Punto ignorado (NaN): {pt}")
+                if math.isnan(lat_v) or math.isnan(lon_v) or math.isnan(rinde_v):
+                    print(f"Punto ignorado (NaN): amb={pt['amb']}")
                     continue
-                # Auto-corregir si lat y lon parecen estar invertidos (zona Argentina)
-                if -40 > lat_v > -80 and -20 > lon_v > -40:
-                    pass  # ok
-                elif -40 > lon_v > -80 and -20 > lat_v > -40:
-                    lat_v, lon_v = lon_v, lat_v  # invertir
-                    print(f"Auto-corregido lat/lon para punto {pt['amb']}")
+                print(f"Punto: {pt['amb']} lat={lat_v} lon={lon_v} rinde={rinde_v}")
                 v=val_punto(img, lat_v, lon_v, olat, olon, plat, plon)
+                print(f"  -> val_punto={v}")
                 if v is not None:
                     pts.append({'amb':pt['amb'],'lat':lat_v,'lon':lon_v,'rinde':rinde_v,'idx_val':v})
             if len(pts)<2: raise Exception(f'El grupo "{grupo["nombre"]}" necesita al menos 2 puntos validos en la imagen.')
