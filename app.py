@@ -107,29 +107,49 @@ def detectar_banda(nombre):
 
 def leer_tiff(data):
     arr = tifffile.imread(io.BytesIO(data)).astype(np.float32)
-    buf = io.BytesIO(data)
-    magic = buf.read(2)
-    end = '<' if magic == b'II' else '>'
-    buf.read(2)
-    ifd_offset = struct.unpack(end+'I', buf.read(4))[0]
-    buf.seek(ifd_offset)
-    n_entries = struct.unpack(end+'H', buf.read(2))[0]
-    tags = {}
-    for _ in range(n_entries):
-        tag_id  = struct.unpack(end+'H', buf.read(2))[0]
-        dtype   = struct.unpack(end+'H', buf.read(2))[0]
-        count   = struct.unpack(end+'I', buf.read(4))[0]
-        val_buf = buf.read(4)
-        if tag_id in (33922, 33550):
-            offset = struct.unpack(end+'I', val_buf)[0]
-            pos = buf.tell()
-            buf.seek(offset)
-            vals = [struct.unpack(end+'d', buf.read(8))[0] for _ in range(count)]
-            buf.seek(pos)
-            tags[tag_id] = vals
-    if 33922 not in tags or 33550 not in tags:
-        raise Exception("Tags de georreferencia no encontrados. Descarga las bandas como 'Raw' desde Copernicus.")
-    return arr, tags[33922][3], tags[33922][4], tags[33550][0], tags[33550][1]
+
+    # Metodo 1: tifffile nativo (mas compatible con compresion Copernicus)
+    try:
+        tf = tifffile.TiffFile(io.BytesIO(data))
+        page = tf.pages[0]
+        tags = {t.code: t.value for t in page.tags.values()}
+        if 33922 in tags and 33550 in tags:
+            tp = tags[33922]
+            ps = tags[33550]
+            return arr, float(tp[3]), float(tp[4]), float(ps[0]), float(ps[1])
+    except Exception:
+        pass
+
+    # Metodo 2: lectura binaria directa
+    try:
+        buf = io.BytesIO(data)
+        magic = buf.read(2)
+        end = '<' if magic == b'II' else '>'
+        buf.read(2)
+        ifd_offset = struct.unpack(end+'I', buf.read(4))[0]
+        buf.seek(ifd_offset)
+        n_entries = struct.unpack(end+'H', buf.read(2))[0]
+        tags = {}
+        for _ in range(n_entries):
+            tag_id = struct.unpack(end+'H', buf.read(2))[0]
+            struct.unpack(end+'H', buf.read(2))
+            count  = struct.unpack(end+'I', buf.read(4))[0]
+            val_buf = buf.read(4)
+            if tag_id in (33922, 33550):
+                offset = struct.unpack(end+'I', val_buf)[0]
+                pos = buf.tell()
+                buf.seek(offset)
+                vals = [struct.unpack(end+'d', buf.read(8))[0] for _ in range(count)]
+                buf.seek(pos)
+                tags[tag_id] = vals
+        if 33922 in tags and 33550 in tags:
+            return arr, tags[33922][3], tags[33922][4], tags[33550][0], tags[33550][1]
+    except Exception:
+        pass
+
+    raise Exception(
+        "No se pudo leer la georreferencia del TIFF. "
+        "Descarga las bandas como 'Raw' desde Copernicus EO Browser.")
 
 def leer_zip(zip_bytes):
     """Extrae TIFFs del ZIP a disco temporal para evitar problemas con nombres especiales."""
