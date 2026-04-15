@@ -22,6 +22,10 @@ try:
 except ImportError as e:
     LIBS_OK = False; LIBS_ERR = str(e)
 
+# Logo embebido en base64
+LOGO_B64 = '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'
+
+
 def _get_html():
     p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "app.html")
     return open(p, "r", encoding="utf-8").read() if os.path.exists(p) else "<h1>No se encontro app.html</h1>"
@@ -259,6 +263,12 @@ def gen_mapa(img,poly,puntos,olat,olon,plat,plon,titulo,idx_nom,unidad):
 # PDF
 def gen_pdf(lotes,config,path):
     from datetime import datetime
+    import base64 as _b64
+    # Preparar logo para el PDF
+    logo_buf = io.BytesIO(_b64.b64decode(LOGO_B64))
+    LOGO_W = 2.5*cm
+    LOGO_H = 1.9*cm
+
     GD=colors.HexColor('#1B5E20'); GM=colors.HexColor('#2E7D32'); GC=colors.HexColor('#C8E6C9')
     GL=colors.HexColor('#F5F5F5'); LN=colors.HexColor('#CFD8DC'); OR=colors.HexColor('#E65100')
     WH=colors.white; GT=colors.HexColor('#37474F')
@@ -283,10 +293,23 @@ def gen_pdf(lotes,config,path):
     indice=config['indice'].upper(); unidad=config['unidad']; now=datetime.now().strftime('%d/%m/%Y')
     doc=SimpleDocTemplate(path,pagesize=A4,leftMargin=2*cm,rightMargin=2*cm,topMargin=1.8*cm,bottomMargin=1.8*cm)
     W=A4[0]-4*cm; story=[]
-    story+=[HRFlowable(width=W,thickness=4,color=GD,spaceAfter=12),Paragraph(config['titulo'],s_tit),
-            Paragraph(f"Destino: {config['destino']} &nbsp;&middot;&nbsp; Analisis {indice} &nbsp;&middot;&nbsp; Sentinel-2",s_sub),
-            Spacer(1,4),Paragraph(f"Imagen: {config['fecha']} &nbsp;&middot;&nbsp; Generado: {now}",s_fch),
-            Spacer(1,12),HRFlowable(width=W,thickness=2,color=GD,spaceAfter=14)]
+    # Encabezado con logo
+    enc = Table([
+        [Paragraph(config['titulo'], s_tit), RLImage(logo_buf, width=LOGO_W, height=LOGO_H)]
+    ], colWidths=[W - LOGO_W - 0.3*cm, LOGO_W + 0.3*cm])
+    enc.setStyle(TableStyle([
+        ('VALIGN',(0,0),(-1,-1),'MIDDLE'),
+        ('ALIGN',(1,0),(1,0),'RIGHT'),
+        ('LEFTPADDING',(0,0),(-1,-1),0),
+        ('RIGHTPADDING',(0,0),(-1,-1),0),
+        ('TOPPADDING',(0,0),(-1,-1),0),
+        ('BOTTOMPADDING',(0,0),(-1,-1),6),
+        ('LINEBELOW',(0,0),(-1,0),2,GD),
+    ]))
+    story += [enc,
+        Paragraph(f"Destino: {config['destino']} &nbsp;&middot;&nbsp; Analisis {indice} &nbsp;&middot;&nbsp; Sentinel-2",s_sub),
+        Spacer(1,4),Paragraph(f"Imagen: {config['fecha']} &nbsp;&middot;&nbsp; Generado: {now}",s_fch),
+        Spacer(1,12)]
     story.append(Paragraph('Resumen por Lote',s_sec))
     dr=[['Lote','Campo','Cultivo','Sup. (ha)',indice+' prom.','R²',f'Rinde ({unidad})']]
     for l in lotes:
