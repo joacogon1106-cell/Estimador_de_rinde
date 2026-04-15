@@ -353,12 +353,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             r={'ok':LIBS_OK}
             if not LIBS_OK: r['error']=LIBS_ERR
             self.wfile.write(json.dumps(r).encode())
-        elif self.path in ('/','  /app','/app.html','/index.html'):
+        elif self.path in ('/', '/app', '/app.html', '/index.html'):
             html=_get_html(); self.send_response(200); self.send_header('Content-Type','text/html; charset=utf-8'); self.cors(); self.end_headers()
             self.wfile.write(html.encode('utf-8'))
-        elif self.path=='/app' or self.path=='/':
-            html=_get_html(); self.send_response(200); self.send_header('Content-Type','text/html; charset=utf-8'); self.cors(); self.end_headers()
-            self.wfile.write(html.encode('utf-8'))
+
     def do_POST(self):
         length=int(self.headers.get('Content-Length',0)); body=self.rfile.read(length)
         try:
@@ -388,6 +386,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
         indices=calc_idx(b3,b4,b8,config['indice'])
         idx_nom='GNDVI' if config['indice']=='gndvi' else 'NDVI' if config['indice']=='ndvi' else 'GNDVI'
         img=indices.get('GNDVI',indices.get('NDVI'))
+        print(f"DEBUG indices keys: {list(indices.keys())}, img is None: {img is None}")
+        if img is None:
+            raise Exception(f"No se pudo calcular el indice {config['indice']}. Verificá que las bandas correctas esten en el ZIP.")
         lotes_res=[]
         for grupo in grupos:
             pts=[]
