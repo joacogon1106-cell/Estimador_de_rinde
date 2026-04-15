@@ -312,7 +312,7 @@ var S = {
   grupos:[], pdfB64:null
 };
 var gc=0, lc=0;
-const PORT=5050, BASE='http://localhost:'+PORT;
+const BASE = window.location.origin;
 
 window.addEventListener('load', checkSrv);
 function checkSrv(){
@@ -652,7 +652,7 @@ function generar(){
     .catch(function(err){
       clearInterval(tmr);
       document.getElementById('ovl').classList.remove('show');
-      e.textContent='Error de conexion: '+err.message+'. Verificá que ARRANCAR.bat este corriendo.';
+      e.textContent='Error de conexion: '+err.message;
       e.classList.add('show');
     });
 }
