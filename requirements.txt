@@ -1,0 +1,6 @@
+tifffile
+numpy
+scipy
+matplotlib
+reportlab
+pillow
