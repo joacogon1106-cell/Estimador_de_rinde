@@ -152,8 +152,9 @@ def leer_tiff(data):
         "Descarga las bandas como 'Raw' desde Copernicus EO Browser.")
 
 def leer_zip(zip_bytes):
-    """Extrae TIFFs del ZIP a disco temporal para evitar problemas con nombres especiales."""
-    b3=b4=b8=None; geo=None; log=[]
+    """Lee bandas del ZIP de Copernicus extrayendo a disco temporal."""
+    import shutil
+    b3=b4=b8=None; geo=None; log=[]; tiffs_originales=[]
     tmp_dir = tempfile.mkdtemp()
     try:
         with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
@@ -162,32 +163,39 @@ def leer_zip(zip_bytes):
                 base = os.path.basename(name)
                 banda = detectar_banda(base)
                 if not banda:
+                    log.append(f"SKIP={base}")
                     continue
-                # Extraer con nombre limpio (sin caracteres problematicos)
                 nombre_limpio = f"banda_{i}_{banda}.tiff"
                 ruta_tmp = os.path.join(tmp_dir, nombre_limpio)
-                with zf.open(name) as src, open(ruta_tmp, 'wb') as dst:
-                    dst.write(src.read())
                 try:
+                    with zf.open(name) as src, open(ruta_tmp, 'wb') as dst:
+                        dst.write(src.read())
                     with open(ruta_tmp, 'rb') as f:
                         data = f.read()
-                    arr,olon,olat,plon,plat = leer_tiff(data)
+                    arr, olon, olat, plon, plat = leer_tiff(data)
                     g = (olon, olat, plon, plat)
-                    log.append(f"{banda}={base} OK")
-                    if banda=='B3' and b3 is None: b3=arr; geo=geo or g
-                    elif banda=='B4' and b4 is None: b4=arr; geo=geo or g
-                    elif banda=='B8' and b8 is None: b8=arr; geo=geo or g
+                    log.append(f"{banda}={base} OK geo=({olon:.4f},{olat:.4f})")
+                    if banda=='B3' and b3 is None:
+                        b3=arr; geo=g
+                    elif banda=='B4' and b4 is None:
+                        b4=arr
+                        if geo is None: geo=g
+                    elif banda=='B8' and b8 is None:
+                        b8=arr
+                        if geo is None: geo=g
                 except Exception as ex:
-                    log.append(f"{banda}={base} ERR:{ex}")
+                    log.append(f"{banda}={base} ERR={str(ex)[:200]}")
     finally:
-        import shutil
         shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    print(f"leer_zip resultado: {log}")
+    print(f"b3={b3 is not None} b4={b4 is not None} b8={b8 is not None} geo={geo}")
 
     if b8 is None or geo is None:
         raise Exception(
             f"No se pudo leer las bandas del ZIP.\n"
             f"TIFFs en ZIP: {[os.path.basename(t) for t in tiffs_originales]}\n"
-            f"Resultado: {log}\n"
+            f"Log detallado: {log}\n"
             f"b8={'OK' if b8 is not None else 'FALLO'}, geo={'OK' if geo is not None else 'FALLO'}")
     if b3 is None: b3=np.zeros_like(b8)
     if b4 is None: b4=np.zeros_like(b8)
