@@ -382,7 +382,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if geo is None:
             raise Exception("geo es None despues de leer_zip - el ZIP no pudo ser leido correctamente")
         olon,olat,plon,plat=geo
-        print(f"DEBUG geo: olon={olon}, olat={olat}, plon={plon}, plat={plat}")
+        print(f"DEBUG geo: olon={olon:.6f}, olat={olat:.6f}, plon={plon:.8f}, plat={plat:.8f}")
+        print(f"DEBUG imagen shape: {b8.shape}, bbox lat=[{olat-b8.shape[0]*plat:.4f}, {olat:.4f}], lon=[{olon:.4f}, {olon+b8.shape[1]*plon:.4f}]")
         indices=calc_idx(b3,b4,b8,config['indice'])
         idx_nom='GNDVI' if config['indice']=='gndvi' else 'NDVI' if config['indice']=='ndvi' else 'GNDVI'
         img=indices.get('GNDVI',indices.get('NDVI'))
