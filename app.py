@@ -31,6 +31,19 @@ def _get_html():
     return open(p, "r", encoding="utf-8").read() if os.path.exists(p) else "<h1>No se encontro app.html</h1>"
 
 # SHAPEFILE
+
+def fmt(n, dec=2):
+    """Numero con punto separador de miles y coma decimal (estilo Argentina)."""
+    try:
+        n = float(n)
+        # Formatear con coma decimal y punto de miles
+        partes = f"{n:,.{dec}f}".split('.')
+        entero = partes[0].replace(',', '.')
+        decimal = partes[1] if len(partes) > 1 else '00'
+        return f"{entero},{decimal}"
+    except:
+        return str(n)
+
 def leer_dbf(data):
     n=struct.unpack('<I',data[4:8])[0]; hdr=struct.unpack('<H',data[8:10])[0]; rsz=struct.unpack('<H',data[10:12])[0]
     fields=[]; pos=32
@@ -249,10 +262,29 @@ def gen_mapa(img,poly,puntos,olat,olon,plat,plon,titulo,idx_nom,unidad):
     im=ax.imshow(crop,cmap=cm2,vmin=0.5,vmax=1.0,extent=ext,origin='upper',interpolation='nearest')
     ax.plot([p[0] for p in poly]+[poly[0][0]],[p[1] for p in poly]+[poly[0][1]],'k-',lw=1.5,zorder=5)
     clrs=['#1565C0','#E65100','#2E7D32','#6A1B9A','#AD1457','#00838F']
+    # Calcular offsets inteligentes para evitar superposicion
+    from itertools import product as iproduct
+    posiciones_usadas = []
+    offsets_candidatos = [(10,10),(10,-22),(-60,10),(-60,-22),(10,22),(-60,22),(30,-10),(-80,10)]
+
     for i,(amb,lat,lon,rinde) in enumerate(puntos):
-        cp=clrs[i%len(clrs)]; ax.scatter(lon,lat,s=130,c=cp,zorder=10,edgecolors='white',linewidth=1.5)
-        ax.annotate(f"{amb}\n{rinde} {unidad}",xy=(lon,lat),xytext=(8,8),textcoords='offset points',
+        cp=clrs[i%len(clrs)]
+        ax.scatter(lon,lat,s=130,c=cp,zorder=10,edgecolors='white',linewidth=1.5)
+        # Elegir offset que no se superponga con etiquetas anteriores
+        mejor_off = offsets_candidatos[i % len(offsets_candidatos)]
+        for ox,oy in offsets_candidatos:
+            solapado = False
+            for px,py in posiciones_usadas:
+                if abs((lon+ox*0.0001)-px) < 0.003 and abs((lat+oy*0.0001)-py) < 0.002:
+                    solapado = True; break
+            if not solapado:
+                mejor_off = (ox,oy); break
+        posiciones_usadas.append((lon+mejor_off[0]*0.0001, lat+mejor_off[1]*0.0001))
+        rinde_fmt = fmt(rinde, 1) if isinstance(rinde, (int,float)) else str(rinde)
+        ax.annotate(f"{amb}\n{rinde_fmt} {unidad}",xy=(lon,lat),
+                    xytext=mejor_off,textcoords='offset points',
                     fontsize=7.5,fontweight='bold',color=cp,
+                    arrowprops=dict(arrowstyle='-',color=cp,lw=0.8),
                     path_effects=[pe.withStroke(linewidth=2,foreground='white')],zorder=11)
     cb=plt.colorbar(im,ax=ax,fraction=0.03,pad=0.02); cb.set_label(idx_nom,fontsize=9); cb.ax.tick_params(labelsize=8)
     ax.set_xlabel('Longitud',fontsize=8); ax.set_ylabel('Latitud',fontsize=8); ax.tick_params(labelsize=7)
@@ -313,8 +345,8 @@ def gen_pdf(lotes,config,path):
     story.append(Paragraph('Resumen por Lote',s_sec))
     dr=[['Lote','Campo','Cultivo','Sup. (ha)',indice+' prom.','R²',f'Rinde ({unidad})']]
     for l in lotes:
-        dr.append([l['nombre'],l['campo'],l['cultivo'],f"{l['area_ha']:.2f}",f"{l['idx_prom']:.4f}",
-                   f"{l['r2']:.3f}"+(' *' if l['r2']<0.5 else ''),f"{l['rinde_est']:.3f}"])
+        dr.append([l['nombre'],l['campo'],l['cultivo'],fmt(l['area_ha'], 1),f"{l['idx_prom']:.4f}",
+                   f"{l['r2']:.3f}"+(' *' if l['r2']<0.5 else ''),fmt(l['rinde_est'], 2)])
     story.append(tbl(dr,[2.7*cm,3*cm,1.9*cm,2*cm,2.2*cm,1.3*cm,2.9*cm],
                      [('TEXTCOLOR',(6,1),(6,-1),GD),('FONTNAME',(6,1),(6,-1),'Helvetica-Bold')]))
     story.append(Spacer(1,5))
@@ -323,13 +355,13 @@ def gen_pdf(lotes,config,path):
     story+=[HRFlowable(width=W,thickness=1,color=LN,spaceAfter=12),Paragraph('Produccion Total Estimada',s_sec)]
     at=sum(l['area_ha'] for l in lotes); pt=sum(l['rinde_est']*l['area_ha'] for l in lotes); rp=pt/at if at else 0
     dp=[['Lote','Superficie (ha)',f'Rinde ({unidad})','Produccion (tn)']]
-    for l in lotes: dp.append([l['nombre'],f"{l['area_ha']:.2f}",f"{l['rinde_est']:.3f}",f"{l['rinde_est']*l['area_ha']:.1f}"])
-    dp.append(['TOTAL / PROM. POND.',f"{at:.2f}",f"{rp:.3f}",f"{pt:.1f}"])
+    for l in lotes: dp.append([l['nombre'],fmt(l['area_ha'], 1),fmt(l['rinde_est'], 2),fmt(l['rinde_est']*l['area_ha'], 1)])
+    dp.append(['TOTAL / PROM. POND.',fmt(at, 1),fmt(rp, 2),fmt(pt, 1)])
     story.append(tbl(dp,[4.5*cm,3.5*cm,3.5*cm,4.5*cm],
                      [('BACKGROUND',(0,-1),(-1,-1),GD),('TEXTCOLOR',(0,-1),(-1,-1),WH),('FONTNAME',(0,-1),(-1,-1),'Helvetica-Bold')]))
     story.append(Spacer(1,16))
     cx=Table([[Paragraph('PRODUCCION TOTAL ESTIMADA',s_pl)],
-              [Paragraph(f"{pt:.1f} tn &nbsp;|&nbsp; Rinde pond.: {rp:.3f} {unidad} &nbsp;|&nbsp; Sup.: {at:.2f} ha",s_pv)]],colWidths=[W])
+              [Paragraph(f"{fmt(pt,1)} tn &nbsp;|&nbsp; Rinde pond.: {fmt(rp,2)} {unidad} &nbsp;|&nbsp; Sup.: {fmt(at,1)} ha",s_pv)]],colWidths=[W])
     cx.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,-1),GD),('TOPPADDING',(0,0),(0,0),9),('BOTTOMPADDING',(0,0),(0,0),4),
                              ('TOPPADDING',(0,1),(0,1),4),('BOTTOMPADDING',(0,1),(0,1),10),
                              ('LEFTPADDING',(0,0),(-1,-1),12),('RIGHTPADDING',(0,0),(-1,-1),12),('LINEABOVE',(0,0),(-1,0),3,OR)]))
@@ -346,7 +378,7 @@ def gen_pdf(lotes,config,path):
         story+=[ht,Spacer(1,10),Paragraph(f'Imagen {indice} y Puntos de Muestreo',s_sec)]
         l['mapa_buf'].seek(0); story.append(RLImage(l['mapa_buf'],width=IW,height=IH)); story.append(Spacer(1,10))
         pd2=[['Ambiente',indice,f'Rinde ({unidad})']]
-        for p in l['puntos_datos']: pd2.append([p['amb'],f"{p['idx_val']:.4f}",f"{p['rinde']:.3f}"])
+        for p in l['puntos_datos']: pd2.append([p['amb'],f"{p['idx_val']:.4f}",fmt(p['rinde'], 2)])
         story.append(tbl(pd2,[6*cm,5*cm,6*cm])); story.append(Spacer(1,12))
         story+=[HRFlowable(width=W,thickness=1,color=LN,spaceAfter=8),Paragraph(f'Modelo de Correlacion {indice} - Rendimiento',s_sec)]
         dm=[['Ecuacion','R²',f'{indice} prom.'],[l['ecuacion'],f"{l['r2']:.3f}"+(' *' if l['r2']<0.5 else ''),f"{l['idx_prom']:.4f}"]]
@@ -354,12 +386,74 @@ def gen_pdf(lotes,config,path):
         if l['r2']<0.5: story.append(Paragraph('* R² bajo: interpretar con precaucion.',s_not))
         story.append(Spacer(1,6))
         rt=Table([[Paragraph('RENDIMIENTO ESTIMADO',s_rl)],
-                  [Paragraph(f"{l['rinde_est']:.3f} {unidad} &nbsp;|&nbsp; {l['rinde_est']*1000:.0f} kg/ha",s_rv)]],colWidths=[W])
+                  [Paragraph(f"{fmt(l['rinde_est'],2)} {unidad} &nbsp;|&nbsp; {fmt(l['rinde_est']*1000,0)} kg/ha",s_rv)]],colWidths=[W])
         rt.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,-1),GM),('TOPPADDING',(0,0),(0,0),8),('BOTTOMPADDING',(0,0),(0,0),4),
                                  ('TOPPADDING',(0,1),(0,1),4),('BOTTOMPADDING',(0,1),(0,1),10),
                                  ('LEFTPADDING',(0,0),(-1,-1),12),('RIGHTPADDING',(0,0),(-1,-1),12),('LINEABOVE',(0,0),(-1,0),3,OR)]))
         story+=[rt,Spacer(1,12),HRFlowable(width=W,thickness=0.5,color=LN,spaceAfter=5),
                 Paragraph(f'Sentinel-2 L2A (Copernicus) | {indice} | Regresion lineal | {now}',s_fot)]
+    # ── Resumen general final ─────────────────────────────────
+    story.append(PageBreak())
+    enc2_buf = io.BytesIO(_b64.b64decode(LOGO_B64))
+    enc2 = Table([
+        [Paragraph('Resumen General — Campo '+lotes[0]['campo'] if lotes else 'Resumen General', 
+                   s('rg', fontSize=16, fontName='Helvetica-Bold', textColor=GD, leading=20)),
+         RLImage(enc2_buf, width=LOGO_W, height=LOGO_H)]
+    ], colWidths=[W - LOGO_W - 0.3*cm, LOGO_W + 0.3*cm])
+    enc2.setStyle(TableStyle([
+        ('VALIGN',(0,0),(-1,-1),'MIDDLE'),('ALIGN',(1,0),(1,0),'RIGHT'),
+        ('LEFTPADDING',(0,0),(-1,-1),0),('RIGHTPADDING',(0,0),(-1,-1),0),
+        ('TOPPADDING',(0,0),(-1,-1),0),('BOTTOMPADDING',(0,0),(-1,-1),6),
+        ('LINEBELOW',(0,0),(-1,0),2,GD),
+    ]))
+    story += [enc2, Spacer(1,6),
+              Paragraph(f'Todos los lotes analizados &nbsp;&middot;&nbsp; Generado: {now}', s_fch),
+              Spacer(1,14)]
+
+    # Agrupar por variedad para el resumen
+    from collections import OrderedDict
+    grupos_var = OrderedDict()
+    for l in lotes:
+        k = (l.get('variedad',''), l.get('cultivo',''))
+        if k not in grupos_var: grupos_var[k] = []
+        grupos_var[k].append(l)
+
+    for (var, cult), lotes_g in grupos_var.items():
+        label = cult + (f' — Var: {var}' if var else '')
+        story.append(Paragraph(label, s_sec))
+        dr2 = [['Lote','Campo','Sup.(ha)',indice+' prom.','R²',f'Rinde ({unidad})','Produccion (tn)']]
+        for l in lotes_g:
+            dr2.append([l['nombre'], l['campo'], fmt(l['area_ha'],1), f"{l['idx_prom']:.4f}",
+                        f"{l['r2']:.3f}"+(' *' if l['r2']<0.5 else ''),
+                        fmt(l['rinde_est'],2), fmt(l['rinde_est']*l['area_ha'],1)])
+        at_g = sum(x['area_ha'] for x in lotes_g)
+        pt_g = sum(x['rinde_est']*x['area_ha'] for x in lotes_g)
+        rp_g = pt_g/at_g if at_g else 0
+        dr2.append(['SUBTOTAL','','',f"{fmt(at_g,1)} ha",'',fmt(rp_g,2)+f' {unidad}',fmt(pt_g,1)+' tn'])
+        t2=Table(dr2,colWidths=[2.5*cm,2.5*cm,1.8*cm,2*cm,1.2*cm,2.5*cm,3*cm],repeatRows=1)
+        t2.setStyle(TableStyle(list(HDR)+[
+            ('TEXTCOLOR',(5,1),(5,-1),GD),('FONTNAME',(5,1),(5,-1),'Helvetica-Bold'),
+            ('BACKGROUND',(0,-1),(-1,-1),GM),('TEXTCOLOR',(0,-1),(-1,-1),WH),
+            ('FONTNAME',(0,-1),(-1,-1),'Helvetica-Bold'),
+        ]))
+        story += [t2, Spacer(1,12)]
+
+    # Caja total campo completo
+    at_tot = sum(l['area_ha'] for l in lotes)
+    pt_tot = sum(l['rinde_est']*l['area_ha'] for l in lotes)
+    rp_tot = pt_tot/at_tot if at_tot else 0
+    campo_nom = lotes[0]['campo'] if lotes else ''
+    ct=Table([[Paragraph(f'RESUMEN CAMPO {campo_nom.upper()}',s_pl)],
+              [Paragraph(f"{fmt(pt_tot,1)} tn &nbsp;|&nbsp; Rinde pond.: {fmt(rp_tot,2)} {unidad} &nbsp;|&nbsp; Sup. total activa: {fmt(at_tot,1)} ha",s_pv)]],
+             colWidths=[W])
+    ct.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,-1),GD),
+        ('TOPPADDING',(0,0),(0,0),9),('BOTTOMPADDING',(0,0),(0,0),4),
+        ('TOPPADDING',(0,1),(0,1),4),('BOTTOMPADDING',(0,1),(0,1),10),
+        ('LEFTPADDING',(0,0),(-1,-1),12),('RIGHTPADDING',(0,0),(-1,-1),12),
+        ('LINEABOVE',(0,0),(-1,0),3,OR)]))
+    story += [ct, Spacer(1,10),
+              Paragraph('Superficie activa = píxeles con GNDVI ≥ 0,5 dentro del perímetro de cada lote.', s_not)]
+
     doc.build(story)
 
 # HTTP
@@ -441,12 +535,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 if poly is None:
                     disp=list(set(rec.get(cl,'') for rec in records if rec.get(cl,'')))
                     raise Exception(f'Lote "{lote["nombre"]}" no encontrado.\nColumna: "{cl}".\nDisponibles: {disp[:25]}')
-                ha=area_ha(poly); prom,_=val_lote(img,poly,olat,olon,plat,plon)
+                ha_manual = float(lote.get('sup_ha', 0) or 0)
+                ha = ha_manual if ha_manual > 0 else area_ha(poly)
+                prom,_=val_lote(img,poly,olat,olon,plat,plon)
                 if prom is None: raise Exception(f'Sin pixeles validos en lote "{lote["nombre"]}".')
                 rinde=sl*prom+it; ec=f"y = {sl:.2f} x {idx_nom} + ({it:.2f})"
                 mb=gen_mapa(img,poly,[(p['amb'],p['lat'],p['lon'],p['rinde']) for p in pts],olat,olon,plat,plon,
                             f"{idx_nom} - {lote['nombre']}",idx_nom,config['unidad'])
                 lotes_res.append({'nombre':lote['nombre'],'campo':lote['campo'],'cultivo':lote['cultivo'],
+                                  'variedad':grupo.get('variedad',''),'grupo_nombre':grupo['nombre'],
                                   'area_ha':ha,'idx_prom':prom,'r2':r2,'rinde_est':rinde,'ecuacion':ec,
                                   'puntos_datos':pts,'mapa_buf':mb})
         with tempfile.NamedTemporaryFile(suffix='.pdf',delete=False) as tmp: pdf_path=tmp.name
