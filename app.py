@@ -393,8 +393,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
         for grupo in grupos:
             pts=[]
             for pt in grupo['puntos']:
-                v=val_punto(img,pt['lat'],pt['lon'],olat,olon,plat,plon)
-                if v is not None: pts.append({'amb':pt['amb'],'lat':pt['lat'],'lon':pt['lon'],'rinde':pt['rinde'],'idx_val':v})
+                try:
+                    lat_v = float(pt['lat'])
+                    lon_v = float(pt['lon'])
+                    rinde_v = float(pt['rinde'])
+                except (TypeError, ValueError):
+                    print(f"Punto ignorado (valor invalido): {pt}")
+                    continue
+                v=val_punto(img, lat_v, lon_v, olat, olon, plat, plon)
+                if v is not None:
+                    pts.append({'amb':pt['amb'],'lat':lat_v,'lon':lon_v,'rinde':rinde_v,'idx_val':v})
             if len(pts)<2: raise Exception(f'El grupo "{grupo["nombre"]}" necesita al menos 2 puntos validos en la imagen.')
             xg=np.array([p['idx_val'] for p in pts]); yg=np.array([p['rinde'] for p in pts])
             sl,it,r,_,_=stats.linregress(xg,yg); r2=r**2
