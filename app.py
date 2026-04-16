@@ -363,7 +363,7 @@ def gen_pdf(lotes,config,path):
     if any(l['r2']<0.5 for l in lotes): story.append(Paragraph('* R² bajo: correlacion debil.',s_not))
     story.append(Spacer(1,16))
     story+=[HRFlowable(width=W,thickness=1,color=LN,spaceAfter=12),Paragraph('Produccion Total Estimada',s_sec)]
-    at=sum(l['area_ha'] for l in lotes); pt=sum(l['rinde_est']*l['area_ha'] for l in lotes); rp=pt/at if at else 0
+    at=sum(l['area_ha'] for l in lotes); pt=sum(l['rinde_est']*l['area_ha']/1000.0 for l in lotes); rp=sum(l['rinde_est']*l['area_ha'] for l in lotes)/at if at else 0
     dp=[['Lote','Superficie (ha)',f'Rinde ({unidad})','Produccion (tn)']]
     for l in lotes: dp.append([l['nombre'],fmt(l['area_ha'], 1),fmt(l['rinde_est'], 2),fmt(l['rinde_est']*l['area_ha'], 1)])
     dp.append(['TOTAL / PROM. POND.',fmt(at, 1),fmt(rp, 2),fmt(pt, 1)])
@@ -435,9 +435,9 @@ def gen_pdf(lotes,config,path):
         for l in lotes_g:
             dr2.append([l['nombre'], l['campo'], fmt(l['area_ha'],1), f"{l['idx_prom']:.4f}",
                         f"{l['r2']:.3f}"+(' *' if l['r2']<0.5 else ''),
-                        fmt(l['rinde_est'],2), fmt(l['rinde_est']*l['area_ha'],1)])
+                        fmt(l['rinde_est'],2), fmt(l['rinde_est']*l['area_ha']/1000.0,1)])
         at_g = sum(x['area_ha'] for x in lotes_g)
-        pt_g = sum(x['rinde_est']*x['area_ha'] for x in lotes_g)
+        pt_g = sum(x['rinde_est']*x['area_ha']/1000.0 for x in lotes_g)
         rp_g = pt_g/at_g if at_g else 0
         dr2.append(['SUBTOTAL','','',f"{fmt(at_g,1)} ha",'',fmt(rp_g,2)+f' {unidad}',fmt(pt_g,1)+' tn'])
         t2=Table(dr2,colWidths=[2.5*cm,2.5*cm,1.8*cm,2*cm,1.2*cm,2.5*cm,3*cm],repeatRows=1)
@@ -450,8 +450,8 @@ def gen_pdf(lotes,config,path):
 
     # Caja total campo completo
     at_tot = sum(l['area_ha'] for l in lotes)
-    pt_tot = sum(l['rinde_est']*l['area_ha'] for l in lotes)
-    rp_tot = pt_tot/at_tot if at_tot else 0
+    pt_tot = sum(l['rinde_est']*l['area_ha']/1000.0 for l in lotes)
+    rp_tot = sum(l['rinde_est']*l['area_ha'] for l in lotes)/at_tot if at_tot else 0
     campo_nom = lotes[0]['campo'] if lotes else ''
     ct=Table([[Paragraph(f'RESUMEN CAMPO {campo_nom.upper()}',s_pl)],
               [Paragraph(f"{fmt(pt_tot,1)} tn &nbsp;|&nbsp; Rinde pond.: {fmt(rp_tot,2)} {unidad} &nbsp;|&nbsp; Sup. total activa: {fmt(at_tot,1)} ha",s_pv)]],
@@ -576,7 +576,7 @@ def gen_pptx_python(lotes, config, path):
         bg = GRIS_CLR if ri%2==0 else BLANCO
         vals = [l['nombre'],l['campo'],l.get('variedad','-'),fmt(l['area_ha'],1),
                 f"{l['idx_prom']:.4f}",f"{l['r2']:.3f}"+(' *' if l['r2']<0.5 else ''),
-                fmt(l['rinde_est'],2), fmt(l['rinde_est']*l['area_ha'],1)]
+                fmt(l['rinde_est'],2), fmt(l['rinde_est']*l['area_ha']/1000.0,1)]
         for ci,v in enumerate(vals):
             tbl_cell(tbl,ri+1,ci,v,bg=bg,color=VERDE_OSC if ci==6 else GRIS_TX)
     tot_vals=['TOTAL','','','',fmt(at,1),'',fmt(rp,2),fmt(pt,1)+' tn']
@@ -632,7 +632,7 @@ def gen_pptx_python(lotes, config, path):
                 size=9, bold=True, color=VERDE_CLA, align='center')
         add_txt(sl, f"{fmt(l['rinde_est'],2)} {unidad}", px, y_rinde+0.32, 4.9, 0.55,
                 size=26, bold=True, color=BLANCO, align='center')
-        add_txt(sl, f"Produccion: {fmt(l['rinde_est']*l['area_ha'],1)} tn  ·  Sup.: {fmt(l['area_ha'],1)} ha",
+        add_txt(sl, f"Produccion: {fmt(l['rinde_est']*l['area_ha']/1000.0,1)} tn  ·  Sup.: {fmt(l['area_ha'],1)} ha",
                 px, y_rinde+0.9, 4.9, 0.3, size=9, color=VERDE_CLA, align='center')
         add_footer(sl)
 
