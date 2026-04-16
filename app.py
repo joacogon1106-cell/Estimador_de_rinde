@@ -432,7 +432,7 @@ def gen_pdf(lotes,config,path):
                 Paragraph('Detalle por Variedad',s_sec)]
         for (var, cult), lotes_g in grupos_var_p1.items():
             label = cult + (f' — Var: {var}' if var else '')
-            story.append(Paragraph(label, s_not))
+            story.append(Paragraph(label, s('var_lbl', fontSize=11, fontName='Helvetica-Bold', textColor=GM, leading=15, spaceBefore=4, spaceAfter=3)))
             dv=[['Lote','Sup.(ha)',f'Rinde ({unidad})','Produccion (tn)']]
             for l in lotes_g:
                 dv.append([l['nombre'],fmt(l['area_ha'],1),fmt(l['rinde_est'],2),
@@ -453,12 +453,18 @@ def gen_pdf(lotes,config,path):
         IW=W; IH=W*0.60
     for l in lotes:
         story.append(PageBreak())
-        ht=Table([[Paragraph(f"<b>{l['nombre']}</b>",s('lh',fontSize=14,fontName='Helvetica-Bold',textColor=WH,alignment=TA_LEFT,leading=18)),
-                   Paragraph(f"Campo: {l['campo']} &nbsp;|&nbsp; Cultivo: {l['cultivo']} &nbsp;|&nbsp; Sup.: {l['area_ha']:.2f} ha",
-                              s('lhi',fontSize=9,textColor=GC,alignment=TA_LEFT,leading=13))]],colWidths=[4*cm,W-4*cm])
+        logo_lote = io.BytesIO(_b64.b64decode(LOGO_B64))
+        var_str = f" &nbsp;·&nbsp; Var: {l['variedad']}" if l.get('variedad') else ''
+        ht=Table([[
+            Paragraph(f"<b>{l['nombre']}</b>",s('lh',fontSize=14,fontName='Helvetica-Bold',textColor=WH,alignment=TA_LEFT,leading=18)),
+            Paragraph(f"Campo: {l['campo']} &nbsp;|&nbsp; Cultivo: {l['cultivo']}{var_str} &nbsp;|&nbsp; Sup.: {fmt(l['area_ha'],1)} ha",
+                      s('lhi',fontSize=9,textColor=GC,alignment=TA_LEFT,leading=13)),
+            RLImage(logo_lote, width=LOGO_W, height=LOGO_H)
+        ]],colWidths=[3.5*cm, W-3.5*cm-LOGO_W-0.5*cm, LOGO_W+0.5*cm])
         ht.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,-1),GD),('VALIGN',(0,0),(-1,-1),'MIDDLE'),
-                                 ('TOPPADDING',(0,0),(-1,-1),10),('BOTTOMPADDING',(0,0),(-1,-1),10),
-                                 ('LEFTPADDING',(0,0),(-1,-1),12),('RIGHTPADDING',(0,0),(-1,-1),8),('LINEBELOW',(0,0),(-1,-1),3,OR)]))
+                                 ('TOPPADDING',(0,0),(-1,-1),8),('BOTTOMPADDING',(0,0),(-1,-1),8),
+                                 ('LEFTPADDING',(0,0),(-1,-1),12),('RIGHTPADDING',(0,0),(-1,-1),4),
+                                 ('RIGHTPADDING',(2,0),(2,0),8),('LINEBELOW',(0,0),(-1,-1),3,OR)]))
         story+=[ht,Spacer(1,10),Paragraph(f'Imagen {indice} y Puntos de Muestreo',s_sec)]
         l['mapa_buf'].seek(0); story.append(RLImage(l['mapa_buf'],width=IW,height=IH)); story.append(Spacer(1,10))
         pd2=[['Ambiente',indice,f'Rinde ({unidad})']]
@@ -476,68 +482,6 @@ def gen_pdf(lotes,config,path):
                                  ('LEFTPADDING',(0,0),(-1,-1),12),('RIGHTPADDING',(0,0),(-1,-1),12),('LINEABOVE',(0,0),(-1,0),3,OR)]))
         story+=[rt,Spacer(1,12),HRFlowable(width=W,thickness=0.5,color=LN,spaceAfter=5),
                 Paragraph(f'Sentinel-2 L2A (Copernicus) | {indice} | Regresion lineal | {now}',s_fot)]
-    # ── Resumen general final ─────────────────────────────────
-    story.append(PageBreak())
-    enc2_buf = io.BytesIO(_b64.b64decode(LOGO_B64))
-    enc2 = Table([
-        [Paragraph('Resumen General — Campo '+lotes[0]['campo'] if lotes else 'Resumen General', 
-                   s('rg', fontSize=16, fontName='Helvetica-Bold', textColor=GD, leading=20)),
-         RLImage(enc2_buf, width=LOGO_W, height=LOGO_H)]
-    ], colWidths=[W - LOGO_W - 0.3*cm, LOGO_W + 0.3*cm])
-    enc2.setStyle(TableStyle([
-        ('VALIGN',(0,0),(-1,-1),'MIDDLE'),('ALIGN',(1,0),(1,0),'RIGHT'),
-        ('LEFTPADDING',(0,0),(-1,-1),0),('RIGHTPADDING',(0,0),(-1,-1),0),
-        ('TOPPADDING',(0,0),(-1,-1),0),('BOTTOMPADDING',(0,0),(-1,-1),6),
-        ('LINEBELOW',(0,0),(-1,0),2,GD),
-    ]))
-    story += [enc2, Spacer(1,6),
-              Paragraph(f'Todos los lotes analizados &nbsp;&middot;&nbsp; Generado: {now}', s_fch),
-              Spacer(1,14)]
-
-    # Agrupar por variedad para el resumen
-    from collections import OrderedDict
-    grupos_var = OrderedDict()
-    for l in lotes:
-        k = (l.get('variedad',''), l.get('cultivo',''))
-        if k not in grupos_var: grupos_var[k] = []
-        grupos_var[k].append(l)
-
-    for (var, cult), lotes_g in grupos_var.items():
-        label = cult + (f' — Var: {var}' if var else '')
-        story.append(Paragraph(label, s_sec))
-        dr2 = [['Lote','Campo','Sup.(ha)',indice+' prom.','R²',f'Rinde ({unidad})','Produccion (tn)']]
-        for l in lotes_g:
-            dr2.append([l['nombre'], l['campo'], fmt(l['area_ha'],1), f"{l['idx_prom']:.4f}",
-                        f"{l['r2']:.3f}"+(' *' if l['r2']<0.5 else ''),
-                        fmt(l['rinde_est'],2), fmt(l['rinde_est']*l['area_ha']/1000.0,1)])
-        at_g = sum(x['area_ha'] for x in lotes_g)
-        pt_g = sum(x['rinde_est']*x['area_ha']/1000.0 for x in lotes_g)
-        rp_g = pt_g/at_g if at_g else 0
-        dr2.append(['SUBTOTAL','','',f"{fmt(at_g,1)} ha",'',fmt(rp_g,2)+f' {unidad}',fmt(pt_g,1)+' tn'])
-        t2=Table(dr2,colWidths=[2.5*cm,2.5*cm,1.8*cm,2*cm,1.2*cm,2.5*cm,3*cm],repeatRows=1)
-        t2.setStyle(TableStyle(list(HDR)+[
-            ('TEXTCOLOR',(5,1),(5,-1),GD),('FONTNAME',(5,1),(5,-1),'Helvetica-Bold'),
-            ('BACKGROUND',(0,-1),(-1,-1),GM),('TEXTCOLOR',(0,-1),(-1,-1),WH),
-            ('FONTNAME',(0,-1),(-1,-1),'Helvetica-Bold'),
-        ]))
-        story += [t2, Spacer(1,12)]
-
-    # Caja total campo completo
-    at_tot = sum(l['area_ha'] for l in lotes)
-    pt_tot = sum(l['rinde_est']*l['area_ha']/1000.0 for l in lotes)
-    rp_tot = sum(l['rinde_est']*l['area_ha'] for l in lotes)/at_tot if at_tot else 0
-    campo_nom = lotes[0]['campo'] if lotes else ''
-    ct=Table([[Paragraph(f'RESUMEN CAMPO {campo_nom.upper()}',s_pl)],
-              [Paragraph(f"{fmt(pt_tot,1)} tn &nbsp;|&nbsp; Rinde pond.: {fmt(rp_tot,2)} {unidad} &nbsp;|&nbsp; Sup. total activa: {fmt(at_tot,1)} ha",s_pv)]],
-             colWidths=[W])
-    ct.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,-1),GD),
-        ('TOPPADDING',(0,0),(0,0),9),('BOTTOMPADDING',(0,0),(0,0),4),
-        ('TOPPADDING',(0,1),(0,1),4),('BOTTOMPADDING',(0,1),(0,1),10),
-        ('LEFTPADDING',(0,0),(-1,-1),12),('RIGHTPADDING',(0,0),(-1,-1),12),
-        ('LINEABOVE',(0,0),(-1,0),3,OR)]))
-    story += [ct, Spacer(1,10),
-              Paragraph('Superficie activa = píxeles con GNDVI ≥ 0,5 dentro del perímetro de cada lote.', s_not)]
-
     doc.build(story)
 
 # ═══════════════════════════════════════════════
