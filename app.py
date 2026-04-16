@@ -479,7 +479,6 @@ def gen_pdf(lotes,config,path):
             ('LEFTPADDING',(0,0),(-1,-1),12),('RIGHTPADDING',(0,0),(-1,-1),4),
             ('RIGHTPADDING',(2,0),(2,0),10),
             ('BOX',(0,0),(-1,-1),2,GD),
-            ('LINEBELOW',(0,0),(-1,-1),3,OR),
         ]))
         story+=[ht,Spacer(1,10),Paragraph(f'Imagen {indice} y Puntos de Muestreo',s_sec)]
         l['mapa_buf'].seek(0); story.append(RLImage(l['mapa_buf'],width=IW,height=IH)); story.append(Spacer(1,10))
