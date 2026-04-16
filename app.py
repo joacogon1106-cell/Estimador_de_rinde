@@ -466,6 +466,178 @@ def gen_pdf(lotes,config,path):
 
     doc.build(story)
 
+# ═══════════════════════════════════════════════
+# POWERPOINT (python-pptx)
+# ═══════════════════════════════════════════════
+
+def gen_pptx_python(lotes, config, path):
+    from pptx import Presentation
+    from pptx.util import Inches, Pt, Emu
+    from pptx.dml.color import RGBColor
+    from pptx.enum.text import PP_ALIGN
+    import base64 as _b
+
+    VERDE_OSC = RGBColor(0x1B, 0x5E, 0x20)
+    VERDE_MED = RGBColor(0x2E, 0x7D, 0x32)
+    VERDE_CLA = RGBColor(0xC8, 0xE6, 0xC9)
+    NARANJA   = RGBColor(0xE6, 0x51, 0x00)
+    GRIS_TX   = RGBColor(0x37, 0x47, 0x4F)
+    GRIS_CLR  = RGBColor(0xF5, 0xF5, 0xF5)
+    BLANCO    = RGBColor(0xFF, 0xFF, 0xFF)
+
+    prs = Presentation()
+    prs.slide_width  = Inches(13.33)
+    prs.slide_height = Inches(7.5)
+    W = 13.33
+    H = 7.5
+
+    logo_bytes = _b.b64decode(LOGO_B64)
+    unidad = config.get('unidad', 'kg/ha')
+
+    def add_rect(slide, x, y, w, h, fill_rgb, line_rgb=None):
+        from pptx.util import Inches
+        shp = slide.shapes.add_shape(1, Inches(x), Inches(y), Inches(w), Inches(h))
+        shp.fill.solid(); shp.fill.fore_color.rgb = fill_rgb
+        if line_rgb:
+            shp.line.color.rgb = line_rgb
+        else:
+            shp.line.fill.background()
+        return shp
+
+    def add_txt(slide, text, x, y, w, h, size=12, bold=False, color=None, align='left', italic=False):
+        from pptx.util import Inches, Pt
+        from pptx.enum.text import PP_ALIGN
+        txb = slide.shapes.add_textbox(Inches(x), Inches(y), Inches(w), Inches(h))
+        tf = txb.text_frame; tf.word_wrap = True
+        p = tf.paragraphs[0]
+        p.alignment = {'left':PP_ALIGN.LEFT,'center':PP_ALIGN.CENTER,'right':PP_ALIGN.RIGHT}.get(align, PP_ALIGN.LEFT)
+        run = p.add_run(); run.text = str(text)
+        run.font.size = Pt(size); run.font.bold = bold; run.font.italic = italic
+        run.font.color.rgb = color or GRIS_TX
+        return txb
+
+    def add_header(slide, titulo, subtitulo=''):
+        add_rect(slide, 0, 0, W, 0.7, VERDE_OSC)
+        add_rect(slide, 0, 0.7, W, 0.06, NARANJA)
+        add_txt(slide, titulo, 0.3, 0.05, W-1.8, 0.6, size=20, bold=True, color=BLANCO, align='left')
+        logo_buf2 = io.BytesIO(logo_bytes)
+        slide.shapes.add_picture(logo_buf2, Inches(W-1.5), Inches(0.05), Inches(1.3), Inches(0.6))
+        if subtitulo:
+            add_txt(slide, subtitulo, 0.3, 0.76, W-0.6, 0.28, size=9, color=GRIS_TX, italic=True)
+
+    def add_footer(slide):
+        add_txt(slide, f"Sentinel-2 L2A (Copernicus) | GNDVI=(B8-B3)/(B8+B3) | Regresion lineal | {config.get('fecha','')}",
+                0.3, H-0.28, W-0.6, 0.25, size=7, color=RGBColor(0x90,0xA4,0xAE), italic=True)
+
+    def tbl_cell(table, row, col, text, bold=False, bg=None, color=None, align='center'):
+        from pptx.util import Pt
+        from pptx.enum.text import PP_ALIGN
+        cell = table.cell(row, col)
+        cell.text = str(text)
+        p = cell.text_frame.paragraphs[0]
+        p.alignment = {'center':PP_ALIGN.CENTER,'left':PP_ALIGN.LEFT,'right':PP_ALIGN.RIGHT}.get(align,PP_ALIGN.CENTER)
+        run = p.runs[0] if p.runs else p.add_run()
+        run.font.bold = bold; run.font.size = Pt(9)
+        run.font.color.rgb = color or GRIS_TX
+        if bg:
+            cell.fill.solid(); cell.fill.fore_color.rgb = bg
+
+    blank_layout = prs.slide_layouts[6]
+
+    # ── Portada ───────────────────────────────────────────
+    s0 = prs.slides.add_slide(blank_layout)
+    s0.background.fill.solid(); s0.background.fill.fore_color.rgb = VERDE_OSC
+    logo_buf0 = io.BytesIO(logo_bytes)
+    s0.shapes.add_picture(logo_buf0, Inches(5.67), Inches(0.4), Inches(2.0), Inches(1.5))
+    add_txt(s0, config.get('titulo','Estimacion de Rendimiento'),
+            0.5, 2.1, 12.3, 1.2, size=30, bold=True, color=BLANCO, align='center')
+    add_rect(s0, 4.2, 3.45, 4.9, 0.07, NARANJA)
+    at = sum(l['area_ha'] for l in lotes)
+    pt = sum(l['rinde_est']*l['area_ha'] for l in lotes)
+    rp = pt/at if at else 0
+    add_txt(s0, f"Destino: {config.get('destino','')}  ·  GNDVI  ·  Sentinel-2  ·  {config.get('fecha','')}",
+            0.5, 3.6, 12.3, 0.4, size=13, color=VERDE_CLA, align='center')
+    add_rect(s0, 2.0, 4.2, 9.33, 0.9, RGBColor(0x15,0x5E,0x20))
+    add_txt(s0, f"{fmt(pt,1)} tn  ·  Rinde pond.: {fmt(rp,2)} {unidad}  ·  Superficie: {fmt(at,1)} ha",
+            2.0, 4.2, 9.33, 0.9, size=14, bold=True, color=BLANCO, align='center')
+
+    # ── Resumen ───────────────────────────────────────────
+    s1 = prs.slides.add_slide(blank_layout)
+    add_header(s1, 'Resumen por Lote', config.get('titulo',''))
+    cols = ['Lote','Campo','Variedad','Sup.(ha)','GNDVI prom.','R²',f'Rinde ({unidad})','Prod.(tn)']
+    n_cols = len(cols); n_rows = len(lotes)+2
+    tbl = s1.shapes.add_table(n_rows, n_cols, Inches(0.3), Inches(1.1), Inches(W-0.6), Inches(H-1.6)).table
+    col_widths = [1.8,1.8,1.4,0.9,1.1,0.7,1.3,1.2]
+    for i,cw in enumerate(col_widths):
+        tbl.columns[i].width = Inches(cw)
+    for ci,ch in enumerate(cols):
+        tbl_cell(tbl,0,ci,ch,bold=True,bg=VERDE_MED,color=BLANCO)
+    for ri,l in enumerate(lotes):
+        bg = GRIS_CLR if ri%2==0 else BLANCO
+        vals = [l['nombre'],l['campo'],l.get('variedad','-'),fmt(l['area_ha'],1),
+                f"{l['idx_prom']:.4f}",f"{l['r2']:.3f}"+(' *' if l['r2']<0.5 else ''),
+                fmt(l['rinde_est'],2), fmt(l['rinde_est']*l['area_ha'],1)]
+        for ci,v in enumerate(vals):
+            tbl_cell(tbl,ri+1,ci,v,bg=bg,color=VERDE_OSC if ci==6 else GRIS_TX)
+    tot_vals=['TOTAL','','','',fmt(at,1),'',fmt(rp,2),fmt(pt,1)+' tn']
+    for ci,v in enumerate(tot_vals):
+        tbl_cell(tbl,n_rows-1,ci,v,bold=True,bg=VERDE_OSC,color=BLANCO)
+    add_footer(s1)
+
+    # ── Una slide por lote ────────────────────────────────
+    for l in lotes:
+        sl = prs.slides.add_slide(blank_layout)
+        var_str = f" · Var: {l['variedad']}" if l.get('variedad') else ''
+        add_header(sl, l['nombre'],
+                   f"Campo: {l['campo']}{var_str}  ·  Cultivo: {l['cultivo']}  ·  Sup.: {fmt(l['area_ha'],1)} ha")
+
+        # Mapa
+        if l.get('mapa_buf'):
+            try:
+                l['mapa_buf'].seek(0)
+                sl.shapes.add_picture(l['mapa_buf'], Inches(0.3), Inches(1.1), Inches(7.5), Inches(5.0))
+            except: pass
+
+        # Panel derecho
+        px = 8.1
+        add_rect(sl, px, 1.1, 4.9, 0.32, VERDE_MED)
+        add_txt(sl, 'Puntos de Muestreo', px, 1.1, 4.9, 0.32, size=9, bold=True, color=BLANCO, align='center')
+
+        pts = l.get('puntos_datos', [])
+        if pts:
+            pt_tbl = sl.shapes.add_table(len(pts)+1, 3, Inches(px), Inches(1.44),
+                                          Inches(4.9), Inches(0.35+len(pts)*0.3)).table
+            pt_tbl.columns[0].width = Inches(2.0)
+            pt_tbl.columns[1].width = Inches(1.3)
+            pt_tbl.columns[2].width = Inches(1.6)
+            for ci,ch in enumerate(['Ambiente','GNDVI',f'Rinde ({unidad})']):
+                tbl_cell(pt_tbl,0,ci,ch,bold=True,bg=VERDE_MED,color=BLANCO)
+            for ri,p in enumerate(pts):
+                bg = GRIS_CLR if ri%2==0 else BLANCO
+                tbl_cell(pt_tbl,ri+1,0,p['amb'],bg=bg,color=GRIS_TX,align='left')
+                tbl_cell(pt_tbl,ri+1,1,f"{p['idx_val']:.4f}",bg=bg,color=GRIS_TX)
+                tbl_cell(pt_tbl,ri+1,2,fmt(p['rinde'],2),bg=bg,color=GRIS_TX)
+
+        y_mod = 1.46 + 0.35 + len(pts)*0.3 + 0.15
+        add_rect(sl, px, y_mod, 4.9, 0.3, VERDE_MED)
+        add_txt(sl, 'Modelo de Correlacion', px, y_mod, 4.9, 0.3, size=9, bold=True, color=BLANCO, align='center')
+        add_txt(sl, l.get('ecuacion',''), px+0.1, y_mod+0.32, 3.2, 0.28, size=8, color=GRIS_TX)
+        add_txt(sl, f"R²: {l['r2']:.3f}", px+3.3, y_mod+0.32, 1.5, 0.28, size=8, color=GRIS_TX)
+        add_txt(sl, f"GNDVI prom.: {l['idx_prom']:.4f}", px+0.1, y_mod+0.62, 4.7, 0.28, size=8, color=GRIS_TX)
+
+        # Caja rendimiento
+        y_rinde = H - 1.5
+        add_rect(sl, px, y_rinde, 4.9, 1.3, VERDE_MED)
+        add_txt(sl, 'RENDIMIENTO ESTIMADO', px, y_rinde+0.05, 4.9, 0.28,
+                size=9, bold=True, color=VERDE_CLA, align='center')
+        add_txt(sl, f"{fmt(l['rinde_est'],2)} {unidad}", px, y_rinde+0.32, 4.9, 0.55,
+                size=26, bold=True, color=BLANCO, align='center')
+        add_txt(sl, f"Produccion: {fmt(l['rinde_est']*l['area_ha'],1)} tn  ·  Sup.: {fmt(l['area_ha'],1)} ha",
+                px, y_rinde+0.9, 4.9, 0.3, size=9, color=VERDE_CLA, align='center')
+        add_footer(sl)
+
+    prs.save(path)
+
 # HTTP
 class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self,fmt,*a): pass
@@ -563,50 +735,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
         gen_pdf(lotes_res,config,pdf_path)
         with open(pdf_path,'rb') as f: b64=base64.b64encode(f.read()).decode()
         os.unlink(pdf_path)
-        # ── Generar PPTX ─────────────────────────────────────
-        import subprocess, json as _json, base64 as _b64_2
-
-        # Preparar datos para el script Node.js
-        lotes_json = []
-        for l in lotes_res:
-            mapa_bytes = l['mapa_buf'].getvalue() if hasattr(l['mapa_buf'], 'getvalue') else l['mapa_buf'].read()
-            lotes_json.append({
-                'nombre':      l['nombre'],
-                'campo':       l['campo'],
-                'cultivo':     l['cultivo'],
-                'variedad':    l.get('variedad',''),
-                'area_ha':     l['area_ha'],
-                'idx_prom':    l['idx_prom'],
-                'r2':          l['r2'],
-                'rinde_est':   l['rinde_est'],
-                'ecuacion':    l['ecuacion'],
-                'mapa_b64':    _b64_2.b64encode(mapa_bytes).decode(),
-                'puntos_datos':[{'amb':p['amb'],'idx_val':p['idx_val'],'rinde':p['rinde']} for p in l['puntos_datos']],
-            })
-
-        pptx_tmp = pdf_path.replace('.pdf', '.pptx')
-        js_input = {
-            'config':  config,
-            'lotes':   lotes_json,
-            'logo_b64': LOGO_B64,
-            'output_path': pptx_tmp,
-        }
-        js_input_path = pdf_path.replace('.pdf', '_input.json')
-        with open(js_input_path, 'w') as jf:
-            _json.dump(js_input, jf)
-
-        js_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'gen_pptx.js')
-        result = subprocess.run(['node', js_script, js_input_path],
-                                capture_output=True, text=True, timeout=120)
-        os.unlink(js_input_path)
-
+        # ── Generar PPTX con python-pptx ─────────────────────
+        import base64 as _b64_2
         pptx_b64 = ''
-        if result.returncode == 0 and os.path.exists(pptx_tmp):
+        try:
+            pptx_tmp = pdf_path.replace('.pdf', '.pptx')
+            gen_pptx_python(lotes_res, config, pptx_tmp)
             with open(pptx_tmp, 'rb') as f2:
                 pptx_b64 = _b64_2.b64encode(f2.read()).decode()
             os.unlink(pptx_tmp)
-        else:
-            print(f"PPTX error: {result.stderr[:500]}")
+        except Exception as epptx:
+            print(f"PPTX error: {epptx}")
 
         return {'ok':True,'pdf':b64,'pptx':pptx_b64}
 
