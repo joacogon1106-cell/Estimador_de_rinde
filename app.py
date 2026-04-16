@@ -80,6 +80,8 @@ def leer_shp(data):
     return polys
 
 def pip(px,py,poly):
+    if isinstance(poly, dict) and 'multipart' in poly:
+        return any(pip(px,py,p) for p in poly['multipart'])
     n=len(poly); inside=False; j=n-1
     for i in range(n):
         xi,yi=poly[i]; xj,yj=poly[j]
@@ -242,6 +244,13 @@ def val_punto(img,lat,lon,olat,olon,plat,plon):
     v=float(np.nanmean(img[r0:r1,c0:c1])); return v if np.isfinite(v) else None
 
 def val_lote(img,poly,olat,olon,plat,plon):
+    if isinstance(poly, dict) and 'multipart' in poly:
+        all_vals = []
+        for p in poly['multipart']:
+            v, n = val_lote(img, p, olat, olon, plat, plon)
+            if v is not None:
+                all_vals.extend([v]*n)
+        return (float(sum(all_vals)/len(all_vals)), len(all_vals)) if all_vals else (None, 0)
     rows,cols=img.shape
     lons=[p[0] for p in poly]; lats=[p[1] for p in poly]
     c0=max(0,int((min(lons)-olon)/plon)-2); c1=min(cols-1,int((max(lons)-olon)/plon)+2)
@@ -270,7 +279,11 @@ def gen_mapa(img,poly,puntos,olat,olon,plat,plon,titulo,idx_nom,unidad):
     fig,ax=plt.subplots(figsize=(7,6),facecolor='white')
     cm2=plt.cm.RdYlGn.copy(); cm2.set_bad('#e8e8e8')
     im=ax.imshow(crop,cmap=cm2,vmin=0.5,vmax=1.0,extent=ext,origin='upper',interpolation='nearest')
-    ax.plot([p[0] for p in poly]+[poly[0][0]],[p[1] for p in poly]+[poly[0][1]],'k-',lw=1.5,zorder=5)
+    if isinstance(poly, dict) and 'multipart' in poly:
+        for pp in poly['multipart']:
+            ax.plot([p[0] for p in pp]+[pp[0][0]],[p[1] for p in pp]+[pp[0][1]],'k-',lw=1.5,zorder=5)
+    else:
+        ax.plot([p[0] for p in poly]+[poly[0][0]],[p[1] for p in poly]+[poly[0][1]],'k-',lw=1.5,zorder=5)
     clrs=['#1565C0','#E65100','#2E7D32','#6A1B9A','#AD1457','#00838F']
     # Calcular offsets inteligentes para evitar superposicion
     from itertools import product as iproduct
@@ -396,7 +409,7 @@ def gen_pdf(lotes,config,path):
         if l['r2']<0.5: story.append(Paragraph('* R² bajo: interpretar con precaucion.',s_not))
         story.append(Spacer(1,6))
         rt=Table([[Paragraph('RENDIMIENTO ESTIMADO',s_rl)],
-                  [Paragraph(f"{fmt(l['rinde_est'],2)} {unidad} &nbsp;|&nbsp; {fmt(l['rinde_est']*1000,0)} kg/ha",s_rv)]],colWidths=[W])
+                  [Paragraph(f"{fmt(l['rinde_est'],2)} {unidad} &nbsp;|&nbsp; {fmt(l['rinde_est']*l['area_ha']/1000.0,1)} tn totales",s_rv)]],colWidths=[W])
         rt.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,-1),GM),('TOPPADDING',(0,0),(0,0),8),('BOTTOMPADDING',(0,0),(0,0),4),
                                  ('TOPPADDING',(0,1),(0,1),4),('BOTTOMPADDING',(0,1),(0,1),10),
                                  ('LEFTPADDING',(0,0),(-1,-1),12),('RIGHTPADDING',(0,0),(-1,-1),12),('LINEABOVE',(0,0),(-1,0),3,OR)]))
