@@ -44,6 +44,16 @@ def fmt(n, dec=2):
     except:
         return str(n)
 
+
+def convertir_rinde(valor_kgha, unidad):
+    """Convierte kg/ha a la unidad seleccionada por el usuario."""
+    if unidad == 't/ha':
+        return valor_kgha / 1000.0
+    elif unidad == 'qq/ha':
+        return valor_kgha / 100.0
+    else:  # kg/ha
+        return valor_kgha
+
 def leer_dbf(data):
     n=struct.unpack('<I',data[4:8])[0]; hdr=struct.unpack('<H',data[8:10])[0]; rsz=struct.unpack('<H',data[10:12])[0]
     fields=[]; pos=32
@@ -539,18 +549,66 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 ha = ha_manual if ha_manual > 0 else area_ha(poly)
                 prom,_=val_lote(img,poly,olat,olon,plat,plon)
                 if prom is None: raise Exception(f'Sin pixeles validos en lote "{lote["nombre"]}".')
-                rinde=sl*prom+it; ec=f"y = {sl:.2f} x {idx_nom} + ({it:.2f})"
-                mb=gen_mapa(img,poly,[(p['amb'],p['lat'],p['lon'],p['rinde']) for p in pts],olat,olon,plat,plon,
+                rinde_kgha = sl*prom+it
+                rinde = convertir_rinde(rinde_kgha, config['unidad'])
+                ec=f"y = {sl:.2f} x {idx_nom} + ({it:.2f})"  
+                pts_display = [(p['amb'],p['lat'],p['lon'],convertir_rinde(p['rinde'],config['unidad'])) for p in pts]
+                mb=gen_mapa(img,poly,pts_display,olat,olon,plat,plon,
                             f"{idx_nom} - {lote['nombre']}",idx_nom,config['unidad'])
                 lotes_res.append({'nombre':lote['nombre'],'campo':lote['campo'],'cultivo':lote['cultivo'],
                                   'variedad':grupo.get('variedad',''),'grupo_nombre':grupo['nombre'],
                                   'area_ha':ha,'idx_prom':prom,'r2':r2,'rinde_est':rinde,'ecuacion':ec,
-                                  'puntos_datos':pts,'mapa_buf':mb})
+                                  'puntos_datos':[dict(p, rinde=convertir_rinde(p['rinde'],config['unidad'])) for p in pts],'mapa_buf':mb})
         with tempfile.NamedTemporaryFile(suffix='.pdf',delete=False) as tmp: pdf_path=tmp.name
         gen_pdf(lotes_res,config,pdf_path)
         with open(pdf_path,'rb') as f: b64=base64.b64encode(f.read()).decode()
         os.unlink(pdf_path)
-        return {'ok':True,'pdf':b64}
+        # ── Generar PPTX ─────────────────────────────────────
+        import subprocess, json as _json, base64 as _b64_2
+
+        # Preparar datos para el script Node.js
+        lotes_json = []
+        for l in lotes_res:
+            mapa_bytes = l['mapa_buf'].getvalue() if hasattr(l['mapa_buf'], 'getvalue') else l['mapa_buf'].read()
+            lotes_json.append({
+                'nombre':      l['nombre'],
+                'campo':       l['campo'],
+                'cultivo':     l['cultivo'],
+                'variedad':    l.get('variedad',''),
+                'area_ha':     l['area_ha'],
+                'idx_prom':    l['idx_prom'],
+                'r2':          l['r2'],
+                'rinde_est':   l['rinde_est'],
+                'ecuacion':    l['ecuacion'],
+                'mapa_b64':    _b64_2.b64encode(mapa_bytes).decode(),
+                'puntos_datos':[{'amb':p['amb'],'idx_val':p['idx_val'],'rinde':p['rinde']} for p in l['puntos_datos']],
+            })
+
+        pptx_tmp = pdf_path.replace('.pdf', '.pptx')
+        js_input = {
+            'config':  config,
+            'lotes':   lotes_json,
+            'logo_b64': LOGO_B64,
+            'output_path': pptx_tmp,
+        }
+        js_input_path = pdf_path.replace('.pdf', '_input.json')
+        with open(js_input_path, 'w') as jf:
+            _json.dump(js_input, jf)
+
+        js_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'gen_pptx.js')
+        result = subprocess.run(['node', js_script, js_input_path],
+                                capture_output=True, text=True, timeout=120)
+        os.unlink(js_input_path)
+
+        pptx_b64 = ''
+        if result.returncode == 0 and os.path.exists(pptx_tmp):
+            with open(pptx_tmp, 'rb') as f2:
+                pptx_b64 = _b64_2.b64encode(f2.read()).decode()
+            os.unlink(pptx_tmp)
+        else:
+            print(f"PPTX error: {result.stderr[:500]}")
+
+        return {'ok':True,'pdf':b64,'pptx':pptx_b64}
 
 if __name__=='__main__':
     print(f'Servidor iniciando en puerto {PORT}')
