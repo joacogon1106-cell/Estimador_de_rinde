@@ -394,31 +394,63 @@ def gen_pdf(lotes,config,path):
         Paragraph(f"Destino: {config['destino']} &nbsp;&middot;&nbsp; Analisis {indice} &nbsp;&middot;&nbsp; Sentinel-2",s_sub),
         Spacer(1,4),Paragraph(f"Imagen: {config['fecha']} &nbsp;&middot;&nbsp; Generado: {now}",s_fch),
         Spacer(1,12)]
-    story.append(Paragraph('Resumen por Lote',s_sec))
-    dr=[['Lote','Campo','Cultivo','Sup. (ha)',indice+' prom.','R²',f'Rinde ({unidad})']]
-    for l in lotes:
-        dr.append([l['nombre'],l['campo'],l['cultivo'],fmt(l['area_ha'], 1),f"{l['idx_prom']:.4f}",
-                   f"{l['r2']:.3f}"+(' *' if l['r2']<0.5 else ''),fmt(l['rinde_est'], 2)])
-    story.append(tbl(dr,[2.7*cm,3*cm,1.9*cm,2*cm,2.2*cm,1.3*cm,2.9*cm],
-                     [('TEXTCOLOR',(6,1),(6,-1),GD),('FONTNAME',(6,1),(6,-1),'Helvetica-Bold')]))
-    story.append(Spacer(1,5))
-    if any(l['r2']<0.5 for l in lotes): story.append(Paragraph('* R² bajo: correlacion debil.',s_not))
-    story.append(Spacer(1,16))
-    story+=[HRFlowable(width=W,thickness=1,color=LN,spaceAfter=12),Paragraph('Produccion Total Estimada',s_sec)]
-    at=sum(l['area_ha'] for l in lotes); pt=sum(l['rinde_est']*l['area_ha']/1000.0 for l in lotes); rp=sum(l['rinde_est']*l['area_ha'] for l in lotes)/at if at else 0
+    # ── Pagina 1: Produccion primero, luego por variedad ─────
+    at=sum(l['area_ha'] for l in lotes)
+    pt=sum(l['rinde_est']*l['area_ha']/1000.0 for l in lotes)
+    rp=sum(l['rinde_est']*l['area_ha'] for l in lotes)/at if at else 0
+
+    # Tabla produccion total por lote
+    story.append(Paragraph('Produccion Total Estimada',s_sec))
     dp=[['Lote','Superficie (ha)',f'Rinde ({unidad})','Produccion (tn)']]
-    for l in lotes: dp.append([l['nombre'],fmt(l['area_ha'], 1),fmt(l['rinde_est'], 2),fmt(l['rinde_est']*l['area_ha'], 1)])
-    dp.append(['TOTAL / PROM. POND.',fmt(at, 1),fmt(rp, 2),fmt(pt, 1)])
+    for l in lotes:
+        dp.append([l['nombre'],fmt(l['area_ha'],1),fmt(l['rinde_est'],2),fmt(l['rinde_est']*l['area_ha']/1000.0,1)])
+    dp.append(['TOTAL / PROM. POND.',fmt(at,1),fmt(rp,2),fmt(pt,1)])
     story.append(tbl(dp,[4.5*cm,3.5*cm,3.5*cm,4.5*cm],
-                     [('BACKGROUND',(0,-1),(-1,-1),GD),('TEXTCOLOR',(0,-1),(-1,-1),WH),('FONTNAME',(0,-1),(-1,-1),'Helvetica-Bold')]))
-    story.append(Spacer(1,16))
+                     [('BACKGROUND',(0,-1),(-1,-1),GD),('TEXTCOLOR',(0,-1),(-1,-1),WH),
+                      ('FONTNAME',(0,-1),(-1,-1),'Helvetica-Bold')]))
+    story.append(Spacer(1,14))
+
+    # Caja grande total
     cx=Table([[Paragraph('PRODUCCION TOTAL ESTIMADA',s_pl)],
               [Paragraph(f"{fmt(pt,1)} tn &nbsp;|&nbsp; Rinde pond.: {fmt(rp,2)} {unidad} &nbsp;|&nbsp; Sup.: {fmt(at,1)} ha",s_pv)]],colWidths=[W])
     cx.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,-1),GD),('TOPPADDING',(0,0),(0,0),9),('BOTTOMPADDING',(0,0),(0,0),4),
                              ('TOPPADDING',(0,1),(0,1),4),('BOTTOMPADDING',(0,1),(0,1),10),
                              ('LEFTPADDING',(0,0),(-1,-1),12),('RIGHTPADDING',(0,0),(-1,-1),12),('LINEABOVE',(0,0),(-1,0),3,OR)]))
     story.append(cx)
-    IW=W; IH=W*0.60
+    story.append(Spacer(1,18))
+
+    # Tabla por variedad (subtotales)
+    from collections import OrderedDict
+    grupos_var_p1 = OrderedDict()
+    for l in lotes:
+        k = (l.get('variedad',''), l.get('cultivo',''))
+        if k not in grupos_var_p1: grupos_var_p1[k] = []
+        grupos_var_p1[k].append(l)
+
+    if len(grupos_var_p1) > 1 or any(v for v,c in grupos_var_p1):
+        story+=[HRFlowable(width=W,thickness=1,color=LN,spaceAfter=10),
+                Paragraph('Detalle por Variedad',s_sec)]
+        for (var, cult), lotes_g in grupos_var_p1.items():
+            label = cult + (f' — Var: {var}' if var else '')
+            story.append(Paragraph(label, s_not))
+            dv=[['Lote','Sup.(ha)',f'Rinde ({unidad})','Produccion (tn)']]
+            for l in lotes_g:
+                dv.append([l['nombre'],fmt(l['area_ha'],1),fmt(l['rinde_est'],2),
+                           fmt(l['rinde_est']*l['area_ha']/1000.0,1)])
+            at_g=sum(x['area_ha'] for x in lotes_g)
+            pt_g=sum(x['rinde_est']*x['area_ha']/1000.0 for x in lotes_g)
+            rp_g=pt_g*1000/at_g if at_g else 0
+            dv.append(['SUBTOTAL',fmt(at_g,1),fmt(rp_g,2)+f' {unidad}',fmt(pt_g,1)+' tn'])
+            tv=Table(dv,colWidths=[4.5*cm,2.5*cm,3.5*cm,4.5*cm],repeatRows=1)
+            tv.setStyle(TableStyle(list(HDR)+[
+                ('BACKGROUND',(0,-1),(-1,-1),GM),('TEXTCOLOR',(0,-1),(-1,-1),WH),
+                ('FONTNAME',(0,-1),(-1,-1),'Helvetica-Bold'),
+            ]))
+            story+=[tv,Spacer(1,10)]
+        if any(l['r2']<0.5 for l in lotes):
+            story.append(Paragraph('* R² bajo: correlacion debil.',s_not))
+
+        IW=W; IH=W*0.60
     for l in lotes:
         story.append(PageBreak())
         ht=Table([[Paragraph(f"<b>{l['nombre']}</b>",s('lh',fontSize=14,fontName='Helvetica-Bold',textColor=WH,alignment=TA_LEFT,leading=18)),
