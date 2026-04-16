@@ -461,6 +461,19 @@ def gen_pdf(lotes,config,path):
             story.append(Paragraph('* R² bajo: correlacion debil.',s_not))
 
         IW=W; IH=W*0.60
+
+    # ── Detectar lotes que comparten grupo de muestreo ─────
+    # Para cada grupo con +1 lote, solo el primer lote muestra la tabla de puntos.
+    # Los siguientes muestran una nota compacta referenciando al primero.
+    grupo_primer_lote = {}   # grupo_nombre -> nombre del primer lote
+    grupo_lotes = {}          # grupo_nombre -> lista de nombres de lotes
+    for l in lotes:
+        gn = l.get('grupo_nombre','')
+        if gn not in grupo_lotes:
+            grupo_lotes[gn] = []
+            grupo_primer_lote[gn] = l['nombre']
+        grupo_lotes[gn].append(l['nombre'])
+
     for l in lotes:
         story.append(PageBreak())
         logo_lote = io.BytesIO(_b64.b64decode(LOGO_B64))
@@ -482,9 +495,40 @@ def gen_pdf(lotes,config,path):
         ]))
         story+=[ht,Spacer(1,10),Paragraph(f'Imagen {indice} y Puntos de Muestreo',s_sec)]
         l['mapa_buf'].seek(0); story.append(RLImage(l['mapa_buf'],width=IW,height=IH)); story.append(Spacer(1,10))
-        pd2=[['Ambiente',indice,f'Rinde ({unidad})']]
-        for p in l['puntos_datos']: pd2.append([p['amb'],f"{p['idx_val']:.4f}",fmt(p['rinde'], 2)])
-        story.append(tbl(pd2,[6*cm,5*cm,6*cm])); story.append(Spacer(1,12))
+
+        # ── Tabla de puntos muestreados: solo en el primer lote de cada grupo ──
+        gn = l.get('grupo_nombre','')
+        lotes_del_grupo = grupo_lotes.get(gn, [])
+        es_primero = grupo_primer_lote.get(gn) == l['nombre']
+        comparte_grupo = len(lotes_del_grupo) > 1
+
+        if es_primero:
+            # Mostrar tabla completa. Si el grupo tiene varios lotes, aclararlo en un subtitulo.
+            if comparte_grupo:
+                otros = [n for n in lotes_del_grupo if n != l['nombre']]
+                otros_str = ', '.join(otros)
+                story.append(Paragraph(
+                    f"<i>Puntos de muestreo compartidos con: {otros_str}</i>",
+                    s('pm_share', fontSize=9, textColor=colors.HexColor('#546E7A'),
+                      leading=12, spaceAfter=4)))
+            pd2=[['Ambiente',indice,f'Rinde ({unidad})']]
+            for p in l['puntos_datos']: pd2.append([p['amb'],f"{p['idx_val']:.4f}",fmt(p['rinde'], 2)])
+            story.append(tbl(pd2,[6*cm,5*cm,6*cm])); story.append(Spacer(1,12))
+        else:
+            # Nota compacta referenciando al primer lote del grupo
+            primer = grupo_primer_lote.get(gn, '')
+            nota_ref = Table([[Paragraph(
+                f"<b>Puntos de muestreo:</b> ver lote <b>{primer}</b> (mismo grupo de manejo)",
+                s('pm_ref', fontSize=9, textColor=GT, leading=13, alignment=TA_CENTER))]],
+                colWidths=[W])
+            nota_ref.setStyle(TableStyle([
+                ('BACKGROUND',(0,0),(-1,-1),GL),
+                ('BOX',(0,0),(-1,-1),0.5,LN),
+                ('TOPPADDING',(0,0),(-1,-1),8),('BOTTOMPADDING',(0,0),(-1,-1),8),
+                ('LEFTPADDING',(0,0),(-1,-1),12),('RIGHTPADDING',(0,0),(-1,-1),12),
+            ]))
+            story.append(nota_ref); story.append(Spacer(1,12))
+
         story+=[HRFlowable(width=W,thickness=1,color=LN,spaceAfter=8),Paragraph(f'Modelo de Correlacion {indice} - Rendimiento',s_sec)]
         dm=[['Ecuacion','R²',f'{indice} prom.'],[l['ecuacion'],f"{l['r2']:.3f}"+(' *' if l['r2']<0.5 else ''),f"{l['idx_prom']:.4f}"]]
         story.append(tbl(dm,[8*cm,2.5*cm,5.5*cm])); story.append(Spacer(1,6))
