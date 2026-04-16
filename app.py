@@ -598,7 +598,7 @@ def gen_pptx_python(lotes, config, path):
                 sl.shapes.add_picture(l['mapa_buf'], Inches(0.3), Inches(1.1), Inches(7.5), Inches(5.0))
             except: pass
 
-        # Panel derecho
+        # Panel derecho - solo puntos dentro del lote (ya filtrados en procesar)
         px = 8.1
         add_rect(sl, px, 1.1, 4.9, 0.32, VERDE_MED)
         add_txt(sl, 'Puntos de Muestreo', px, 1.1, 4.9, 0.32, size=9, bold=True, color=BLANCO, align='center')
@@ -724,8 +724,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 rinde_kgha = sl*prom+it
                 rinde = convertir_rinde(rinde_kgha, config['unidad'])
                 ec=f"y = {sl:.2f} x {idx_nom} + ({it:.2f})"  
-                pts_display = [(p['amb'],p['lat'],p['lon'],convertir_rinde(p['rinde'],config['unidad'])) for p in pts]
-                mb=gen_mapa(img,poly,pts_display,olat,olon,plat,plon,
+                # Solo mostrar en el mapa los puntos que caen dentro de este lote
+                pts_en_lote = [(p['amb'],p['lat'],p['lon'],convertir_rinde(p['rinde'],config['unidad']))
+                               for p in pts if pip(p['lon'], p['lat'], poly)]
+                mb=gen_mapa(img,poly,pts_en_lote,olat,olon,plat,plon,
                             f"{idx_nom} - {lote['nombre']}",idx_nom,config['unidad'])
                 lotes_res.append({'nombre':lote['nombre'],'campo':lote['campo'],'cultivo':lote['cultivo'],
                                   'variedad':grupo.get('variedad',''),'grupo_nombre':grupo['nombre'],
