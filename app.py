@@ -378,8 +378,18 @@ def gen_pdf(lotes,config,path):
     doc=SimpleDocTemplate(path,pagesize=A4,leftMargin=2*cm,rightMargin=2*cm,topMargin=1.8*cm,bottomMargin=1.8*cm)
     W=A4[0]-4*cm; story=[]
     # Encabezado con logo
+    # Partir titulo: "Estimacion de Rendimiento — Soja — Campo" -> dos lineas
+    tit_partes = config['titulo'].rsplit(' — ', 1)
+    tit_linea1 = tit_partes[0] if len(tit_partes) > 1 else config['titulo']
+    tit_linea2 = tit_partes[1] if len(tit_partes) > 1 else ''
+    s_tit1 = s('t1', fontSize=17, textColor=GD, fontName='Helvetica-Bold', alignment=TA_LEFT, leading=22, spaceAfter=2)
+    s_tit2 = s('t2', fontSize=20, textColor=GD, fontName='Helvetica-Bold', alignment=TA_LEFT, leading=26, spaceAfter=4)
+    tit_block = [Paragraph(tit_linea1, s_tit1)]
+    if tit_linea2:
+        tit_block.append(Paragraph(tit_linea2, s_tit2))
+
     enc = Table([
-        [Paragraph(config['titulo'], s_tit), RLImage(logo_buf, width=LOGO_W, height=LOGO_H)]
+        [tit_block, RLImage(logo_buf, width=LOGO_W, height=LOGO_H)]
     ], colWidths=[W - LOGO_W - 0.3*cm, LOGO_W + 0.3*cm])
     enc.setStyle(TableStyle([
         ('VALIGN',(0,0),(-1,-1),'MIDDLE'),
@@ -455,16 +465,22 @@ def gen_pdf(lotes,config,path):
         story.append(PageBreak())
         logo_lote = io.BytesIO(_b64.b64decode(LOGO_B64))
         var_str = f" &nbsp;·&nbsp; Var: {l['variedad']}" if l.get('variedad') else ''
+        # Marco verde (sin fondo): tabla con borde exterior verde y fondo blanco
         ht=Table([[
-            Paragraph(f"<b>{l['nombre']}</b>",s('lh',fontSize=14,fontName='Helvetica-Bold',textColor=WH,alignment=TA_LEFT,leading=18)),
-            Paragraph(f"Campo: {l['campo']} &nbsp;|&nbsp; Cultivo: {l['cultivo']}{var_str} &nbsp;|&nbsp; Sup.: {fmt(l['area_ha'],1)} ha",
-                      s('lhi',fontSize=9,textColor=GC,alignment=TA_LEFT,leading=13)),
+            Paragraph(f"<b>{l['nombre']}</b>",s('lh',fontSize=16,fontName='Helvetica-Bold',textColor=GD,alignment=TA_LEFT,leading=20)),
+            Paragraph(f"Campo: {l['campo']}{var_str}<br/>Cultivo: {l['cultivo']} &nbsp;·&nbsp; Sup.: {fmt(l['area_ha'],1)} ha",
+                      s('lhi',fontSize=9,textColor=GT,alignment=TA_LEFT,leading=13)),
             RLImage(logo_lote, width=LOGO_W, height=LOGO_H)
         ]],colWidths=[3.5*cm, W-3.5*cm-LOGO_W-0.5*cm, LOGO_W+0.5*cm])
-        ht.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,-1),GD),('VALIGN',(0,0),(-1,-1),'MIDDLE'),
-                                 ('TOPPADDING',(0,0),(-1,-1),8),('BOTTOMPADDING',(0,0),(-1,-1),8),
-                                 ('LEFTPADDING',(0,0),(-1,-1),12),('RIGHTPADDING',(0,0),(-1,-1),4),
-                                 ('RIGHTPADDING',(2,0),(2,0),8),('LINEBELOW',(0,0),(-1,-1),3,OR)]))
+        ht.setStyle(TableStyle([
+            ('BACKGROUND',(0,0),(-1,-1),WH),
+            ('VALIGN',(0,0),(-1,-1),'MIDDLE'),
+            ('TOPPADDING',(0,0),(-1,-1),10),('BOTTOMPADDING',(0,0),(-1,-1),10),
+            ('LEFTPADDING',(0,0),(-1,-1),12),('RIGHTPADDING',(0,0),(-1,-1),4),
+            ('RIGHTPADDING',(2,0),(2,0),10),
+            ('BOX',(0,0),(-1,-1),2,GD),
+            ('LINEBELOW',(0,0),(-1,-1),3,OR),
+        ]))
         story+=[ht,Spacer(1,10),Paragraph(f'Imagen {indice} y Puntos de Muestreo',s_sec)]
         l['mapa_buf'].seek(0); story.append(RLImage(l['mapa_buf'],width=IW,height=IH)); story.append(Spacer(1,10))
         pd2=[['Ambiente',indice,f'Rinde ({unidad})']]
