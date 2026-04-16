@@ -66,19 +66,45 @@ def leer_dbf(data):
         records.append(rec); rpos+=rsz
     return records
 
+def _pip_simple(px, py, poly):
+    n=len(poly); inside=False; j=n-1
+    for i in range(n):
+        xi,yi=poly[i]; xj,yj=poly[j]
+        if ((yi>py)!=(yj>py)) and (px<(xj-xi)*(py-yi)/(yj-yi)+xi): inside=not inside
+        j=i
+    return inside
+
 def leer_shp(data):
+    """Lee poligonos del shapefile. Detecta exteriores y huecos por centroide."""
     polys=[]; pos=100
     while pos<len(data):
         clen=struct.unpack('>I',data[pos+4:pos+8])[0]*2
         if struct.unpack('<I',data[pos+8:pos+12])[0]==5:
-            npts=struct.unpack('<I',data[pos+48:pos+52])[0]; nparts=struct.unpack('<I',data[pos+44:pos+48])[0]
-            ps=pos+52+nparts*4; pts=[]
-            for i in range(npts): pts.append((struct.unpack('<d',data[ps+i*16:ps+i*16+8])[0], struct.unpack('<d',data[ps+i*16+8:ps+i*16+16])[0]))
-            polys.append(pts)
-        else: polys.append(None)
+            npts=struct.unpack('<I',data[pos+48:pos+52])[0]
+            npar=struct.unpack('<I',data[pos+44:pos+48])[0]
+            parts=[struct.unpack('<I',data[pos+52+i*4:pos+56+i*4])[0] for i in range(npar)]
+            ps2=pos+52+npar*4
+            all_pts=[(struct.unpack('<d',data[ps2+i*16:ps2+i*16+8])[0],
+                      struct.unpack('<d',data[ps2+i*16+8:ps2+i*16+16])[0]) for i in range(npts)]
+            if npar==1:
+                polys.append(all_pts)
+            else:
+                partes=[]
+                for pi in range(npar):
+                    s=parts[pi]; e=parts[pi+1] if pi+1<npar else npts
+                    p=all_pts[s:e]
+                    if len(p)>=3: partes.append(p)
+                exteriores=[]
+                for i,p in enumerate(partes):
+                    cx=sum(pt[0] for pt in p)/len(p); cy=sum(pt[1] for pt in p)/len(p)
+                    es_int=any(i!=j and _pip_simple(cx,cy,partes[j]) for j in range(len(partes)))
+                    if not es_int: exteriores.append(p)
+                if not exteriores: exteriores=partes
+                polys.append(exteriores[0] if len(exteriores)==1 else {'multipart':exteriores})
+        else:
+            polys.append(None)
         pos+=8+clen
     return polys
-
 def pip(px,py,poly):
     if isinstance(poly, dict) and 'multipart' in poly:
         return any(pip(px,py,p) for p in poly['multipart'])
@@ -266,24 +292,25 @@ def val_lote(img,poly,olat,olon,plat,plon):
 # MAPA
 def gen_mapa(img,poly,puntos,olat,olon,plat,plon,titulo,idx_nom,unidad):
     rows,cols=img.shape; mg=0.003
-    lons=[p[0] for p in poly]; lats=[p[1] for p in poly]
-    c0=max(0,int((min(lons)-mg-olon)/plon)); c1=min(cols-1,int((max(lons)+mg-olon)/plon)+1)
-    r0=max(0,int((olat-max(lats)-mg)/plat)); r1=min(rows-1,int((olat-min(lats)+mg)/plat)+1)
+    # Normalizar: siempre trabajar con lista de partes
+    partes=poly['multipart'] if isinstance(poly,dict) and 'multipart' in poly else [poly]
+    all_lons=[p[0] for pp in partes for p in pp]
+    all_lats=[p[1] for pp in partes for p in pp]
+    c0=max(0,int((min(all_lons)-mg-olon)/plon)); c1=min(cols-1,int((max(all_lons)+mg-olon)/plon)+1)
+    r0=max(0,int((olat-max(all_lats)-mg)/plat)); r1=min(rows-1,int((olat-min(all_lats)+mg)/plat)+1)
     crop=img[r0:r1+1,c0:c1+1].copy(); h,w=crop.shape
     mask=np.zeros((h,w),dtype=bool)
     for r in range(h):
         for c in range(w):
-            if pip(olon+(c0+c)*plon, olat-(r0+r)*plat, poly): mask[r,c]=True
+            if pip(olon+(c0+c)*plon,olat-(r0+r)*plat,poly): mask[r,c]=True
     crop[~mask]=np.nan
     ext=[olon+c0*plon,olon+c1*plon,olat-r1*plat,olat-r0*plat]
     fig,ax=plt.subplots(figsize=(7,6),facecolor='white')
     cm2=plt.cm.RdYlGn.copy(); cm2.set_bad('#e8e8e8')
     im=ax.imshow(crop,cmap=cm2,vmin=0.5,vmax=1.0,extent=ext,origin='upper',interpolation='nearest')
-    if isinstance(poly, dict) and 'multipart' in poly:
-        for pp in poly['multipart']:
-            ax.plot([p[0] for p in pp]+[pp[0][0]],[p[1] for p in pp]+[pp[0][1]],'k-',lw=1.5,zorder=5)
-    else:
-        ax.plot([p[0] for p in poly]+[poly[0][0]],[p[1] for p in poly]+[poly[0][1]],'k-',lw=1.5,zorder=5)
+    # Cada parte se dibuja como poligono cerrado e independiente (sin linea entre partes)
+    for pp in partes:
+        ax.plot([p[0] for p in pp]+[pp[0][0]],[p[1] for p in pp]+[pp[0][1]],'k-',lw=1.5,zorder=5)
     clrs=['#1565C0','#E65100','#2E7D32','#6A1B9A','#AD1457','#00838F']
     # Calcular offsets inteligentes para evitar superposicion
     from itertools import product as iproduct
