@@ -116,6 +116,8 @@ def pip(px,py,poly):
     return inside
 
 def area_ha(poly):
+    if isinstance(poly, dict) and 'multipart' in poly:
+        return sum(area_ha(p) for p in poly['multipart'])
     n=len(poly); a=0
     for i in range(n): j=(i+1)%n; a+=poly[i][0]*poly[j][1]-poly[j][0]*poly[i][1]
     a=abs(a)/2; cy=sum(p[1] for p in poly)/n
