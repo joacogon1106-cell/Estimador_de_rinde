@@ -405,15 +405,17 @@ def gen_pdf(lotes,config,path):
         Spacer(1,4),Paragraph(f"Imagen: {config['fecha']} &nbsp;&middot;&nbsp; Generado: {now}",s_fch),
         Spacer(1,12)]
     # ── Pagina 1: Produccion primero, luego por variedad ─────
+    # rinde_est esta SIEMPRE en kg/ha. Solo se convierte para mostrar.
     at=sum(l['area_ha'] for l in lotes)
     pt=sum(l['rinde_est']*l['area_ha']/1000.0 for l in lotes)
-    rp=sum(l['rinde_est']*l['area_ha'] for l in lotes)/at if at else 0
+    rp_kgha=sum(l['rinde_est']*l['area_ha'] for l in lotes)/at if at else 0
+    rp=convertir_rinde(rp_kgha, unidad)
 
     # Tabla produccion total por lote
     story.append(Paragraph('Produccion Total Estimada',s_sec))
     dp=[['Lote','Superficie (ha)',f'Rinde ({unidad})','Produccion (tn)']]
     for l in lotes:
-        dp.append([l['nombre'],fmt(l['area_ha'],1),fmt(l['rinde_est'],2),fmt(l['rinde_est']*l['area_ha']/1000.0,1)])
+        dp.append([l['nombre'],fmt(l['area_ha'],1),fmt(convertir_rinde(l['rinde_est'],unidad),2),fmt(l['rinde_est']*l['area_ha']/1000.0,1)])
     dp.append(['TOTAL / PROM. POND.',fmt(at,1),fmt(rp,2),fmt(pt,1)])
     story.append(tbl(dp,[4.5*cm,3.5*cm,3.5*cm,4.5*cm],
                      [('BACKGROUND',(0,-1),(-1,-1),GD),('TEXTCOLOR',(0,-1),(-1,-1),WH),
@@ -445,11 +447,12 @@ def gen_pdf(lotes,config,path):
             story.append(Paragraph(label, s('var_lbl', fontSize=11, fontName='Helvetica-Bold', textColor=GM, leading=15, spaceBefore=4, spaceAfter=3)))
             dv=[['Lote','Sup.(ha)',f'Rinde ({unidad})','Produccion (tn)']]
             for l in lotes_g:
-                dv.append([l['nombre'],fmt(l['area_ha'],1),fmt(l['rinde_est'],2),
+                dv.append([l['nombre'],fmt(l['area_ha'],1),fmt(convertir_rinde(l['rinde_est'],unidad),2),
                            fmt(l['rinde_est']*l['area_ha']/1000.0,1)])
             at_g=sum(x['area_ha'] for x in lotes_g)
             pt_g=sum(x['rinde_est']*x['area_ha']/1000.0 for x in lotes_g)
-            rp_g=pt_g*1000/at_g if at_g else 0
+            rp_g_kgha=pt_g*1000/at_g if at_g else 0
+            rp_g=convertir_rinde(rp_g_kgha, unidad)
             dv.append(['SUBTOTAL',fmt(at_g,1),fmt(rp_g,2)+f' {unidad}',fmt(pt_g,1)+' tn'])
             tv=Table(dv,colWidths=[4.5*cm,2.5*cm,3.5*cm,4.5*cm],repeatRows=1)
             tv.setStyle(TableStyle(list(HDR)+[
@@ -512,7 +515,7 @@ def gen_pdf(lotes,config,path):
                     s('pm_share', fontSize=9, textColor=colors.HexColor('#546E7A'),
                       leading=12, spaceAfter=4)))
             pd2=[['Ambiente',indice,f'Rinde ({unidad})']]
-            for p in l['puntos_datos']: pd2.append([p['amb'],f"{p['idx_val']:.4f}",fmt(p['rinde'], 2)])
+            for p in l['puntos_datos']: pd2.append([p['amb'],f"{p['idx_val']:.4f}",fmt(convertir_rinde(p['rinde'],unidad), 2)])
             story.append(tbl(pd2,[6*cm,5*cm,6*cm])); story.append(Spacer(1,12))
         else:
             # Nota compacta referenciando al primer lote del grupo
@@ -535,7 +538,7 @@ def gen_pdf(lotes,config,path):
         if l['r2']<0.5: story.append(Paragraph('* R² bajo: interpretar con precaucion.',s_not))
         story.append(Spacer(1,6))
         rt=Table([[Paragraph('RENDIMIENTO ESTIMADO',s_rl)],
-                  [Paragraph(f"{fmt(l['rinde_est'],2)} {unidad} &nbsp;|&nbsp; {fmt(l['rinde_est']*l['area_ha']/1000.0,1)} tn totales",s_rv)]],colWidths=[W])
+                  [Paragraph(f"{fmt(convertir_rinde(l['rinde_est'],unidad),2)} {unidad} &nbsp;|&nbsp; {fmt(l['rinde_est']*l['area_ha']/1000.0,1)} tn totales",s_rv)]],colWidths=[W])
         rt.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,-1),GM),('TOPPADDING',(0,0),(0,0),8),('BOTTOMPADDING',(0,0),(0,0),4),
                                  ('TOPPADDING',(0,1),(0,1),4),('BOTTOMPADDING',(0,1),(0,1),10),
                                  ('LEFTPADDING',(0,0),(-1,-1),12),('RIGHTPADDING',(0,0),(-1,-1),12),('LINEABOVE',(0,0),(-1,0),3,OR)]))
@@ -630,8 +633,9 @@ def gen_pptx_python(lotes, config, path):
             0.5, 2.1, 12.3, 1.2, size=30, bold=True, color=BLANCO, align='center')
     add_rect(s0, 4.2, 3.45, 4.9, 0.07, NARANJA)
     at = sum(l['area_ha'] for l in lotes)
-    pt = sum(l['rinde_est']*l['area_ha'] for l in lotes)
-    rp = pt/at if at else 0
+    pt = sum(l['rinde_est']*l['area_ha']/1000.0 for l in lotes)
+    rp_kgha = sum(l['rinde_est']*l['area_ha'] for l in lotes)/at if at else 0
+    rp = convertir_rinde(rp_kgha, unidad)
     add_txt(s0, f"Destino: {config.get('destino','')}  ·  GNDVI  ·  Sentinel-2  ·  {config.get('fecha','')}",
             0.5, 3.6, 12.3, 0.4, size=13, color=VERDE_CLA, align='center')
     add_rect(s0, 2.0, 4.2, 9.33, 0.9, RGBColor(0x15,0x5E,0x20))
@@ -653,7 +657,7 @@ def gen_pptx_python(lotes, config, path):
         bg = GRIS_CLR if ri%2==0 else BLANCO
         vals = [l['nombre'],l['campo'],l.get('variedad','-'),fmt(l['area_ha'],1),
                 f"{l['idx_prom']:.4f}",f"{l['r2']:.3f}"+(' *' if l['r2']<0.5 else ''),
-                fmt(l['rinde_est'],2), fmt(l['rinde_est']*l['area_ha']/1000.0,1)]
+                fmt(convertir_rinde(l['rinde_est'],unidad),2), fmt(l['rinde_est']*l['area_ha']/1000.0,1)]
         for ci,v in enumerate(vals):
             tbl_cell(tbl,ri+1,ci,v,bg=bg,color=VERDE_OSC if ci==6 else GRIS_TX)
     tot_vals=['TOTAL','','','',fmt(at,1),'',fmt(rp,2),fmt(pt,1)+' tn']
@@ -693,7 +697,7 @@ def gen_pptx_python(lotes, config, path):
                 bg = GRIS_CLR if ri%2==0 else BLANCO
                 tbl_cell(pt_tbl,ri+1,0,p['amb'],bg=bg,color=GRIS_TX,align='left')
                 tbl_cell(pt_tbl,ri+1,1,f"{p['idx_val']:.4f}",bg=bg,color=GRIS_TX)
-                tbl_cell(pt_tbl,ri+1,2,fmt(p['rinde'],2),bg=bg,color=GRIS_TX)
+                tbl_cell(pt_tbl,ri+1,2,fmt(convertir_rinde(p['rinde'],unidad),2),bg=bg,color=GRIS_TX)
 
         y_mod = 1.46 + 0.35 + len(pts)*0.3 + 0.15
         add_rect(sl, px, y_mod, 4.9, 0.3, VERDE_MED)
@@ -707,7 +711,7 @@ def gen_pptx_python(lotes, config, path):
         add_rect(sl, px, y_rinde, 4.9, 1.3, VERDE_MED)
         add_txt(sl, 'RENDIMIENTO ESTIMADO', px, y_rinde+0.05, 4.9, 0.28,
                 size=9, bold=True, color=VERDE_CLA, align='center')
-        add_txt(sl, f"{fmt(l['rinde_est'],2)} {unidad}", px, y_rinde+0.32, 4.9, 0.55,
+        add_txt(sl, f"{fmt(convertir_rinde(l['rinde_est'],unidad),2)} {unidad}", px, y_rinde+0.32, 4.9, 0.55,
                 size=26, bold=True, color=BLANCO, align='center')
         add_txt(sl, f"Produccion: {fmt(l['rinde_est']*l['area_ha']/1000.0,1)} tn  ·  Sup.: {fmt(l['area_ha'],1)} ha",
                 px, y_rinde+0.9, 4.9, 0.3, size=9, color=VERDE_CLA, align='center')
@@ -799,17 +803,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 prom,_=val_lote(img,poly,olat,olon,plat,plon)
                 if prom is None: raise Exception(f'Sin pixeles validos en lote "{lote["nombre"]}".')
                 rinde_kgha = sl*prom+it
-                rinde = convertir_rinde(rinde_kgha, config['unidad'])
+                # rinde_est se guarda SIEMPRE en kg/ha (unidad interna).
+                # La conversion a la unidad elegida por el usuario se hace solo al mostrar.
                 ec=f"y = {sl:.2f} x {idx_nom} + ({it:.2f})"  
                 # Solo mostrar en el mapa los puntos que caen dentro de este lote
+                # (al mapa se le pasan los rindes ya convertidos para los rotulos)
                 pts_en_lote = [(p['amb'],p['lat'],p['lon'],convertir_rinde(p['rinde'],config['unidad']))
                                for p in pts if pip(p['lon'], p['lat'], poly)]
                 mb=gen_mapa(img,poly,pts_en_lote,olat,olon,plat,plon,
                             f"{idx_nom} - {lote['nombre']}",idx_nom,config['unidad'])
                 lotes_res.append({'nombre':lote['nombre'],'campo':lote['campo'],'cultivo':lote['cultivo'],
                                   'variedad':grupo.get('variedad',''),'grupo_nombre':grupo['nombre'],
-                                  'area_ha':ha,'idx_prom':prom,'r2':r2,'rinde_est':rinde,'ecuacion':ec,
-                                  'puntos_datos':[dict(p, rinde=convertir_rinde(p['rinde'],config['unidad'])) for p in pts],'mapa_buf':mb})
+                                  'area_ha':ha,'idx_prom':prom,'r2':r2,'rinde_est':rinde_kgha,'ecuacion':ec,
+                                  'puntos_datos':pts,'mapa_buf':mb})
         with tempfile.NamedTemporaryFile(suffix='.pdf',delete=False) as tmp: pdf_path=tmp.name
         gen_pdf(lotes_res,config,pdf_path)
         with open(pdf_path,'rb') as f: b64=base64.b64encode(f.read()).decode()
