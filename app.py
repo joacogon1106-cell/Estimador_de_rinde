@@ -162,6 +162,23 @@ def detectar_banda(nombre):
     if '_B08' in n or 'B08_' in n: return 'B8'
     return None
 
+def extraer_fecha_zip(zip_bytes):
+    """Lee el ZIP de Copernicus y extrae la fecha del nombre de los TIFFs.
+    Formato esperado: 'YYYY-MM-DD-HH:MM_..._B0X_(Raw).tiff' o similar.
+    Devuelve la fecha en formato 'YYYY-MM-DD' o None si no la encuentra."""
+    try:
+        with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+            for name in zf.namelist():
+                base = os.path.basename(name)
+                # Buscar patron YYYY-MM-DD al inicio del nombre
+                m = re.match(r'^(\d{4}-\d{2}-\d{2})', base)
+                if m:
+                    return m.group(1)
+        return None
+    except Exception as e:
+        print(f"extraer_fecha_zip error: {e}")
+        return None
+
 def leer_tiff(data):
     arr = tifffile.imread(io.BytesIO(data)).astype(np.float32)
 
@@ -733,7 +750,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         length=int(self.headers.get('Content-Length',0)); body=self.rfile.read(length)
         try:
-            result=self.procesar(json.loads(body))
+            payload=json.loads(body)
+            # Endpoint dedicado para extraer fecha del ZIP (sin procesar nada mas)
+            if self.path == '/fecha':
+                zip_b64 = payload.get('zip','')
+                fecha = extraer_fecha_zip(base64.b64decode(zip_b64)) if zip_b64 else None
+                self.send_response(200); self.send_header('Content-Type','application/json'); self.cors(); self.end_headers()
+                self.wfile.write(json.dumps({'fecha': fecha}).encode())
+                return
+            result=self.procesar(payload)
             self.send_response(200); self.send_header('Content-Type','application/json'); self.cors(); self.end_headers()
             self.wfile.write(json.dumps(result).encode())
         except Exception as e:
