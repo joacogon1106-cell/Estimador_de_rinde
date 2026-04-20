@@ -579,7 +579,15 @@ def gen_pdf(lotes,config,path):
         grupos_pts[k]['lotes'].append(l['nombre'])
 
     if grupos_pts:
-        story.append(PageBreak())
+        # Si hay un solo lote, mantener la tabla de puntos en la pagina 1
+        # (mas compacto, evita pagina con mucho espacio en blanco).
+        # Si hay mas de uno, dejarlo en una pagina aparte como antes.
+        un_solo_lote = len(lotes) == 1
+        if un_solo_lote:
+            story.append(Spacer(1, 10))
+            story.append(HRFlowable(width=W, thickness=1, color=LN, spaceAfter=10))
+        else:
+            story.append(PageBreak())
         story.append(Paragraph('Puntos de Muestreo por Variedad', s_sec))
         story.append(Paragraph(
             'Detalle de los puntos relevados a campo utilizados en cada modelo de correlacion.',
