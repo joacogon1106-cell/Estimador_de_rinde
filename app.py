@@ -82,40 +82,95 @@ def _pip_simple(px, py, poly):
         j=i
     return inside
 
+def _signed_area(poly):
+    """Calcula el area con signo (shoelace). En coords (lon,lat):
+    negativo = CW = anillo exterior (ESRI). positivo = CCW = hueco."""
+    n = len(poly); a = 0
+    for i in range(n):
+        j = (i+1) % n
+        a += poly[i][0]*poly[j][1] - poly[j][0]*poly[i][1]
+    return a / 2.0
+
 def leer_shp(data):
-    """Lee poligonos del shapefile. Detecta exteriores y huecos por centroide."""
-    polys=[]; pos=100
-    while pos<len(data):
-        clen=struct.unpack('>I',data[pos+4:pos+8])[0]*2
-        if struct.unpack('<I',data[pos+8:pos+12])[0]==5:
-            npts=struct.unpack('<I',data[pos+48:pos+52])[0]
-            npar=struct.unpack('<I',data[pos+44:pos+48])[0]
-            parts=[struct.unpack('<I',data[pos+52+i*4:pos+56+i*4])[0] for i in range(npar)]
-            ps2=pos+52+npar*4
-            all_pts=[(struct.unpack('<d',data[ps2+i*16:ps2+i*16+8])[0],
-                      struct.unpack('<d',data[ps2+i*16+8:ps2+i*16+16])[0]) for i in range(npts)]
-            if npar==1:
+    """Lee poligonos del shapefile distinguiendo exteriores (CW) de huecos (CCW)
+    segun la convencion ESRI. Devuelve estructuras:
+      - [(x,y),...]                                      -> poligono simple
+      - {'outer': [...], 'holes': [[...], [...]]}        -> poligono con huecos
+      - {'multipart': [poly1, poly2, ...]}               -> varios poligonos separados
+        (cada elemento de multipart puede ser cualquiera de los anteriores)
+    """
+    polys = []; pos = 100
+    while pos < len(data):
+        clen = struct.unpack('>I', data[pos+4:pos+8])[0] * 2
+        if struct.unpack('<I', data[pos+8:pos+12])[0] == 5:
+            npts = struct.unpack('<I', data[pos+48:pos+52])[0]
+            npar = struct.unpack('<I', data[pos+44:pos+48])[0]
+            parts = [struct.unpack('<I', data[pos+52+i*4:pos+56+i*4])[0] for i in range(npar)]
+            ps2 = pos + 52 + npar*4
+            all_pts = [(struct.unpack('<d', data[ps2+i*16:ps2+i*16+8])[0],
+                        struct.unpack('<d', data[ps2+i*16+8:ps2+i*16+16])[0]) for i in range(npts)]
+            if npar == 1:
                 polys.append(all_pts)
             else:
-                partes=[]
+                # Separar anillos y clasificar por orientacion
+                anillos = []
                 for pi in range(npar):
-                    s=parts[pi]; e=parts[pi+1] if pi+1<npar else npts
-                    p=all_pts[s:e]
-                    if len(p)>=3: partes.append(p)
-                exteriores=[]
-                for i,p in enumerate(partes):
-                    cx=sum(pt[0] for pt in p)/len(p); cy=sum(pt[1] for pt in p)/len(p)
-                    es_int=any(i!=j and _pip_simple(cx,cy,partes[j]) for j in range(len(partes)))
-                    if not es_int: exteriores.append(p)
-                if not exteriores: exteriores=partes
-                polys.append(exteriores[0] if len(exteriores)==1 else {'multipart':exteriores})
+                    s = parts[pi]; e = parts[pi+1] if pi+1 < npar else npts
+                    p = all_pts[s:e]
+                    if len(p) < 3: continue
+                    sa = _signed_area(p)
+                    tipo = 'outer' if sa < 0 else 'hole'
+                    anillos.append((tipo, p, abs(sa)))
+                exteriores = [a for a in anillos if a[0] == 'outer']
+                huecos = [a for a in anillos if a[0] == 'hole']
+
+                if not exteriores:
+                    # Sin exteriores detectables por orientacion: fallback a metodo viejo (centroide)
+                    partes = [a[1] for a in anillos]
+                    ext_fb = []
+                    for i, p in enumerate(partes):
+                        cx = sum(pt[0] for pt in p)/len(p); cy = sum(pt[1] for pt in p)/len(p)
+                        es_int = any(i != j and _pip_simple(cx, cy, partes[j]) for j in range(len(partes)))
+                        if not es_int: ext_fb.append(p)
+                    polys.append(ext_fb[0] if len(ext_fb) == 1 else {'multipart': ext_fb})
+                elif len(exteriores) == 1:
+                    # Un exterior: puede tener huecos
+                    outer = exteriores[0][1]
+                    if huecos:
+                        # Asignar cada hueco a su exterior (en este caso solo hay uno)
+                        polys.append({'outer': outer, 'holes': [h[1] for h in huecos]})
+                    else:
+                        polys.append(outer)
+                else:
+                    # Varios exteriores: asignar cada hueco al exterior que lo contiene
+                    partes_out = []
+                    for tipo, p, _ in exteriores:
+                        # Buscar huecos dentro de este exterior
+                        h_dentro = []
+                        for ht, hp, _ in huecos:
+                            cx = sum(pt[0] for pt in hp)/len(hp)
+                            cy = sum(pt[1] for pt in hp)/len(hp)
+                            if _pip_simple(cx, cy, p):
+                                h_dentro.append(hp)
+                        if h_dentro:
+                            partes_out.append({'outer': p, 'holes': h_dentro})
+                        else:
+                            partes_out.append(p)
+                    polys.append({'multipart': partes_out})
         else:
             polys.append(None)
-        pos+=8+clen
+        pos += 8 + clen
     return polys
 def pip(px,py,poly):
+    # multipart: punto esta dentro si esta en alguna de las partes
     if isinstance(poly, dict) and 'multipart' in poly:
         return any(pip(px,py,p) for p in poly['multipart'])
+    # outer+holes: punto esta dentro si esta en el exterior Y NO esta en ningun hueco
+    if isinstance(poly, dict) and 'outer' in poly:
+        if not pip(px, py, poly['outer']): return False
+        for h in poly.get('holes', []):
+            if pip(px, py, h): return False  # dentro de un hueco = fuera del lote
+        return True
     n=len(poly); inside=False; j=n-1
     for i in range(n):
         xi,yi=poly[i]; xj,yj=poly[j]
@@ -126,6 +181,11 @@ def pip(px,py,poly):
 def area_ha(poly):
     if isinstance(poly, dict) and 'multipart' in poly:
         return sum(area_ha(p) for p in poly['multipart'])
+    if isinstance(poly, dict) and 'outer' in poly:
+        # Area del exterior menos area de los huecos
+        a_outer = area_ha(poly['outer'])
+        a_holes = sum(area_ha(h) for h in poly.get('holes', []))
+        return max(0.0, a_outer - a_holes)
     n=len(poly); a=0
     for i in range(n): j=(i+1)%n; a+=poly[i][0]*poly[j][1]-poly[j][0]*poly[i][1]
     a=abs(a)/2; cy=sum(p[1] for p in poly)/n
@@ -304,8 +364,13 @@ def val_lote(img,poly,olat,olon,plat,plon):
             if v is not None:
                 all_vals.extend([v]*n)
         return (float(sum(all_vals)/len(all_vals)), len(all_vals)) if all_vals else (None, 0)
+    # outer+holes: usar bbox del exterior y dejar que pip() excluya los huecos
+    if isinstance(poly, dict) and 'outer' in poly:
+        bbox_poly = poly['outer']
+    else:
+        bbox_poly = poly
     rows,cols=img.shape
-    lons=[p[0] for p in poly]; lats=[p[1] for p in poly]
+    lons=[p[0] for p in bbox_poly]; lats=[p[1] for p in bbox_poly]
     c0=max(0,int((min(lons)-olon)/plon)-2); c1=min(cols-1,int((max(lons)-olon)/plon)+2)
     r0=max(0,int((olat-max(lats))/plat)-2); r1=min(rows-1,int((olat-min(lats))/plat)+2)
     vals=[]
@@ -319,8 +384,17 @@ def val_lote(img,poly,olat,olon,plat,plon):
 # MAPA
 def gen_mapa(img,poly,puntos,olat,olon,plat,plon,titulo,idx_nom,unidad):
     rows,cols=img.shape; mg=0.003
-    # Normalizar: siempre trabajar con lista de partes
-    partes=poly['multipart'] if isinstance(poly,dict) and 'multipart' in poly else [poly]
+    # Aplanar TODOS los anillos (exteriores + huecos) para bbox y dibujo de contornos.
+    # La mascara sigue siendo el pip(poly) que ya excluye huecos correctamente.
+    def _flatten_rings(p):
+        if isinstance(p, dict) and 'multipart' in p:
+            out = []
+            for sub in p['multipart']: out.extend(_flatten_rings(sub))
+            return out
+        if isinstance(p, dict) and 'outer' in p:
+            return [p['outer']] + list(p.get('holes', []))
+        return [p]
+    partes = _flatten_rings(poly)
     all_lons=[p[0] for pp in partes for p in pp]
     all_lats=[p[1] for pp in partes for p in pp]
     c0=max(0,int((min(all_lons)-mg-olon)/plon)); c1=min(cols-1,int((max(all_lons)+mg-olon)/plon)+1)
@@ -335,7 +409,8 @@ def gen_mapa(img,poly,puntos,olat,olon,plat,plon,titulo,idx_nom,unidad):
     fig,ax=plt.subplots(figsize=(7,6),facecolor='white')
     cm2=plt.cm.RdYlGn.copy(); cm2.set_bad('#e8e8e8')
     im=ax.imshow(crop,cmap=cm2,vmin=0.5,vmax=1.0,extent=ext,origin='upper',interpolation='nearest')
-    # Cada parte se dibuja como poligono cerrado e independiente (sin linea entre partes)
+    # Cada anillo (exterior y huecos) se dibuja como poligono cerrado independiente.
+    # Los huecos quedan visualmente marcados porque su interior se muestra en gris (crop=nan).
     for pp in partes:
         ax.plot([p[0] for p in pp]+[pp[0][0]],[p[1] for p in pp]+[pp[0][1]],'k-',lw=1.5,zorder=5)
     clrs=['#1565C0','#E65100','#2E7D32','#6A1B9A','#AD1457','#00838F']
