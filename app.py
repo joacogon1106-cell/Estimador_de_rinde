@@ -518,25 +518,75 @@ def gen_pdf(lotes,config,path):
         Spacer(1,12)]
     # ── Pagina 1: Produccion primero, luego por variedad ─────
     # rinde_est esta SIEMPRE en kg/ha. Solo se convierte para mostrar.
-    at=sum(l['area_ha'] for l in lotes)
-    pt=sum(l['rinde_est']*l['area_ha']/1000.0 for l in lotes)
-    rp_kgha=sum(l['rinde_est']*l['area_ha'] for l in lotes)/at if at else 0
-    rp=convertir_rinde(rp_kgha, unidad)
+    # Detectar si todos los lotes tienen multiples indices (modo "ambos")
+    indices_pdf = lotes[0].get('indices_procesados', ['GNDVI']) if lotes else ['GNDVI']
+    es_ambos = len(indices_pdf) > 1
+
+    at = sum(l['area_ha'] for l in lotes)
+
+    # Helpers para sacar rinde por indice de un lote
+    def _rind_idx(l, idx):
+        di = l.get('datos_indices')
+        if di and idx in di: return di[idx]['rinde_est']
+        return l['rinde_est']  # fallback legacy
+
+    # Calcular totales por indice (toneladas y rinde ponderado)
+    pt_idx = {}; rp_idx = {}
+    for idx in indices_pdf:
+        pt_idx[idx] = sum(_rind_idx(l, idx) * l['area_ha'] / 1000.0 for l in lotes)
+        rp_kgha = sum(_rind_idx(l, idx) * l['area_ha'] for l in lotes) / at if at else 0
+        rp_idx[idx] = convertir_rinde(rp_kgha, unidad)
+
+    # Para compatibilidad / caja resumen / pagina por lote: usar el primer indice (GNDVI por defecto)
+    pt = pt_idx[indices_pdf[0]]; rp = rp_idx[indices_pdf[0]]
 
     # Tabla produccion total por lote
     story.append(Paragraph('Produccion Total Estimada',s_sec))
-    dp=[['Lote','Superficie (ha)',f'Rinde ({unidad})','Produccion (tn)']]
-    for l in lotes:
-        dp.append([l['nombre'],fmt(l['area_ha'],1),fmt(convertir_rinde(l['rinde_est'],unidad),2),fmt(l['rinde_est']*l['area_ha']/1000.0,1)])
-    dp.append(['TOTAL / PROM. POND.',fmt(at,1),fmt(rp,2),fmt(pt,1)])
-    story.append(tbl(dp,[4.5*cm,3.5*cm,3.5*cm,4.5*cm],
-                     [('BACKGROUND',(0,-1),(-1,-1),GD),('TEXTCOLOR',(0,-1),(-1,-1),WH),
-                      ('FONTNAME',(0,-1),(-1,-1),'Helvetica-Bold')]))
+    if es_ambos:
+        # Header: Lote | Sup | Rinde GNDVI | Prod GNDVI | Rinde NDVI | Prod NDVI
+        hdr = ['Lote','Superficie\n(ha)']
+        for idx in indices_pdf:
+            hdr += [f'Rinde {idx}\n({unidad})', f'Produccion {idx}\n(tn)']
+        dp = [hdr]
+        for l in lotes:
+            row = [l['nombre'], fmt(l['area_ha'],1)]
+            for idx in indices_pdf:
+                rk = _rind_idx(l, idx)
+                row += [fmt(convertir_rinde(rk, unidad), 2), fmt(rk * l['area_ha']/1000.0, 1)]
+            dp.append(row)
+        tot_row = ['TOTAL / PROM. POND.', fmt(at,1)]
+        for idx in indices_pdf:
+            tot_row += [fmt(rp_idx[idx], 2), fmt(pt_idx[idx], 1)]
+        dp.append(tot_row)
+        # Distribuir todo el ancho disponible (W) proporcionalmente
+        col_w = [3.2*cm, 2.0*cm] + [3.0*cm, 2.4*cm] * len(indices_pdf)
+        story.append(tbl(dp, col_w,
+                         [('BACKGROUND',(0,-1),(-1,-1),GD),('TEXTCOLOR',(0,-1),(-1,-1),WH),
+                          ('FONTNAME',(0,-1),(-1,-1),'Helvetica-Bold'),
+                          ('FONTSIZE',(0,0),(-1,0),8.5),  # header mas chico
+                          ('FONTSIZE',(0,1),(-1,-1),9),
+                          ('VALIGN',(0,0),(-1,-1),'MIDDLE')]))
+    else:
+        dp=[['Lote','Superficie (ha)',f'Rinde ({unidad})','Produccion (tn)']]
+        for l in lotes:
+            dp.append([l['nombre'],fmt(l['area_ha'],1),fmt(convertir_rinde(l['rinde_est'],unidad),2),fmt(l['rinde_est']*l['area_ha']/1000.0,1)])
+        dp.append(['TOTAL / PROM. POND.',fmt(at,1),fmt(rp,2),fmt(pt,1)])
+        story.append(tbl(dp,[4.5*cm,3.5*cm,3.5*cm,4.5*cm],
+                         [('BACKGROUND',(0,-1),(-1,-1),GD),('TEXTCOLOR',(0,-1),(-1,-1),WH),
+                          ('FONTNAME',(0,-1),(-1,-1),'Helvetica-Bold')]))
     story.append(Spacer(1,14))
 
     # Caja grande total
+    if es_ambos:
+        # Mostrar ambas estimaciones
+        partes_caja = []
+        for idx in indices_pdf:
+            partes_caja.append(f"<b>{idx}</b>: {fmt(pt_idx[idx],1)} tn ({fmt(rp_idx[idx],2)} {unidad})")
+        caja_txt = f"Sup.: {fmt(at,1)} ha &nbsp;|&nbsp; " + " &nbsp;|&nbsp; ".join(partes_caja)
+    else:
+        caja_txt = f"{fmt(pt,1)} tn &nbsp;|&nbsp; Rinde pond.: {fmt(rp,2)} {unidad} &nbsp;|&nbsp; Sup.: {fmt(at,1)} ha"
     cx=Table([[Paragraph('PRODUCCION TOTAL ESTIMADA',s_pl)],
-              [Paragraph(f"{fmt(pt,1)} tn &nbsp;|&nbsp; Rinde pond.: {fmt(rp,2)} {unidad} &nbsp;|&nbsp; Sup.: {fmt(at,1)} ha",s_pv)]],colWidths=[W])
+              [Paragraph(caja_txt,s_pv)]],colWidths=[W])
     cx.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,-1),GD),('TOPPADDING',(0,0),(0,0),9),('BOTTOMPADDING',(0,0),(0,0),4),
                              ('TOPPADDING',(0,1),(0,1),4),('BOTTOMPADDING',(0,1),(0,1),10),
                              ('LEFTPADDING',(0,0),(-1,-1),12),('RIGHTPADDING',(0,0),(-1,-1),12),('LINEABOVE',(0,0),(-1,0),3,OR)]))
@@ -557,20 +607,48 @@ def gen_pdf(lotes,config,path):
         for (var, cult), lotes_g in grupos_var_p1.items():
             label = cult + (f' — Var: {var}' if var else '')
             sub_label = Paragraph(label, s('var_lbl', fontSize=11, fontName='Helvetica-Bold', textColor=GM, leading=15, spaceBefore=4, spaceAfter=3))
-            dv=[['Lote','Sup.(ha)',f'Rinde ({unidad})','Produccion (tn)']]
-            for l in lotes_g:
-                dv.append([l['nombre'],fmt(l['area_ha'],1),fmt(convertir_rinde(l['rinde_est'],unidad),2),
-                           fmt(l['rinde_est']*l['area_ha']/1000.0,1)])
-            at_g=sum(x['area_ha'] for x in lotes_g)
-            pt_g=sum(x['rinde_est']*x['area_ha']/1000.0 for x in lotes_g)
-            rp_g_kgha=pt_g*1000/at_g if at_g else 0
-            rp_g=convertir_rinde(rp_g_kgha, unidad)
-            dv.append(['SUBTOTAL',fmt(at_g,1),fmt(rp_g,2)+f' {unidad}',fmt(pt_g,1)+' tn'])
-            tv=Table(dv,colWidths=[4.5*cm,2.5*cm,3.5*cm,4.5*cm],repeatRows=1)
-            tv.setStyle(TableStyle(list(HDR)+[
-                ('BACKGROUND',(0,-1),(-1,-1),GM),('TEXTCOLOR',(0,-1),(-1,-1),WH),
-                ('FONTNAME',(0,-1),(-1,-1),'Helvetica-Bold'),
-            ]))
+            at_g = sum(x['area_ha'] for x in lotes_g)
+            if es_ambos:
+                hdr = ['Lote','Sup.\n(ha)']
+                for idx in indices_pdf:
+                    hdr += [f'Rinde {idx}\n({unidad})', f'Produccion {idx}\n(tn)']
+                dv = [hdr]
+                for l in lotes_g:
+                    row = [l['nombre'], fmt(l['area_ha'],1)]
+                    for idx in indices_pdf:
+                        rk = _rind_idx(l, idx)
+                        row += [fmt(convertir_rinde(rk, unidad), 2), fmt(rk*l['area_ha']/1000.0, 1)]
+                    dv.append(row)
+                tot = ['SUBTOTAL', fmt(at_g,1)]
+                for idx in indices_pdf:
+                    pt_g = sum(_rind_idx(x, idx)*x['area_ha']/1000.0 for x in lotes_g)
+                    rp_g_kgha = pt_g*1000/at_g if at_g else 0
+                    rp_g = convertir_rinde(rp_g_kgha, unidad)
+                    tot += [fmt(rp_g,2)+f' {unidad}', fmt(pt_g,1)+' tn']
+                dv.append(tot)
+                col_w = [3.2*cm, 1.8*cm] + [3.0*cm, 2.4*cm]*len(indices_pdf)
+                tv = Table(dv, colWidths=col_w, repeatRows=1)
+                tv.setStyle(TableStyle(list(HDR)+[
+                    ('BACKGROUND',(0,-1),(-1,-1),GM),('TEXTCOLOR',(0,-1),(-1,-1),WH),
+                    ('FONTNAME',(0,-1),(-1,-1),'Helvetica-Bold'),
+                    ('FONTSIZE',(0,0),(-1,0),8.5),
+                    ('FONTSIZE',(0,1),(-1,-1),8.5),
+                    ('VALIGN',(0,0),(-1,-1),'MIDDLE'),
+                ]))
+            else:
+                dv=[['Lote','Sup.(ha)',f'Rinde ({unidad})','Produccion (tn)']]
+                for l in lotes_g:
+                    dv.append([l['nombre'],fmt(l['area_ha'],1),fmt(convertir_rinde(l['rinde_est'],unidad),2),
+                               fmt(l['rinde_est']*l['area_ha']/1000.0,1)])
+                pt_g=sum(x['rinde_est']*x['area_ha']/1000.0 for x in lotes_g)
+                rp_g_kgha=pt_g*1000/at_g if at_g else 0
+                rp_g=convertir_rinde(rp_g_kgha, unidad)
+                dv.append(['SUBTOTAL',fmt(at_g,1),fmt(rp_g,2)+f' {unidad}',fmt(pt_g,1)+' tn'])
+                tv=Table(dv,colWidths=[4.5*cm,2.5*cm,3.5*cm,4.5*cm],repeatRows=1)
+                tv.setStyle(TableStyle(list(HDR)+[
+                    ('BACKGROUND',(0,-1),(-1,-1),GM),('TEXTCOLOR',(0,-1),(-1,-1),WH),
+                    ('FONTNAME',(0,-1),(-1,-1),'Helvetica-Bold'),
+                ]))
             # KeepTogether: si esta subtabla no entra entera, salta a pagina nueva
             story.append(KeepTogether([sub_label, tv, Spacer(1,10)]))
         if any(l['r2']<0.5 for l in lotes):
@@ -587,7 +665,8 @@ def gen_pdf(lotes,config,path):
     for l in lotes:
         k = (l.get('variedad',''), l.get('cultivo',''), l.get('grupo_nombre',''))
         if k not in grupos_pts:
-            grupos_pts[k] = {'lotes': [], 'puntos': l['puntos_datos']}
+            # Guardamos referencia al lote para poder sacar datos por indice si hay ambos
+            grupos_pts[k] = {'lotes': [], 'puntos': l['puntos_datos'], 'lote_ref': l}
         grupos_pts[k]['lotes'].append(l['nombre'])
 
     if grupos_pts:
@@ -615,12 +694,32 @@ def gen_pdf(lotes,config,path):
             sub_lotes = Paragraph(
                 f"<i>Lotes: {lotes_str}</i>",
                 s('pm_lotes', fontSize=9, textColor=GT, leading=12, spaceAfter=4))
-            dpv = [['Ambiente', indice, f'Rinde ({unidad})']]
-            for p in info['puntos']:
-                dpv.append([p['amb'], f"{p['idx_val']:.4f}", fmt(convertir_rinde(p['rinde'], unidad), 2)])
-            tpv = tbl(dpv, [6*cm, 5*cm, 6*cm])
-            # KeepTogether: cada bloque (titulo + lotes + tabla) entero o salta de pagina
-            story.append(KeepTogether([sub_label, sub_lotes, tpv, Spacer(1,12)]))
+
+            if es_ambos and info['lote_ref'].get('datos_indices'):
+                # Una tabla por indice (los idx_val de cada punto cambian segun el indice)
+                bloques = [sub_label, sub_lotes]
+                for idx in indices_pdf:
+                    di = info['lote_ref']['datos_indices'].get(idx)
+                    if not di: continue
+                    pts_idx = di['puntos_datos']
+                    sub_idx = Paragraph(
+                        f"<b>Indice {idx}</b>",
+                        s(f'pm_sub_{idx}', fontSize=10, textColor=GD, leading=13,
+                          spaceBefore=4, spaceAfter=2))
+                    dpv = [['Ambiente', idx, f'Rinde ({unidad})']]
+                    for p in pts_idx:
+                        dpv.append([p['amb'], f"{p['idx_val']:.4f}", fmt(convertir_rinde(p['rinde'], unidad), 2)])
+                    tpv = tbl(dpv, [6*cm, 5*cm, 6*cm])
+                    bloques += [sub_idx, tpv, Spacer(1,8)]
+                bloques.append(Spacer(1,4))
+                story.append(KeepTogether(bloques))
+            else:
+                dpv = [['Ambiente', indice, f'Rinde ({unidad})']]
+                for p in info['puntos']:
+                    dpv.append([p['amb'], f"{p['idx_val']:.4f}", fmt(convertir_rinde(p['rinde'], unidad), 2)])
+                tpv = tbl(dpv, [6*cm, 5*cm, 6*cm])
+                # KeepTogether: cada bloque (titulo + lotes + tabla) entero o salta de pagina
+                story.append(KeepTogether([sub_label, sub_lotes, tpv, Spacer(1,12)]))
 
     # ── Una pagina por lote (mapa + modelo + rendimiento estimado) ─────
     for l in lotes:
@@ -642,21 +741,70 @@ def gen_pdf(lotes,config,path):
             ('RIGHTPADDING',(2,0),(2,0),10),
             ('BOX',(0,0),(-1,-1),2,GD),
         ]))
-        story+=[ht,Spacer(1,10),Paragraph(f'Imagen {indice}',s_sec)]
-        l['mapa_buf'].seek(0); story.append(RLImage(l['mapa_buf'],width=IW,height=IH)); story.append(Spacer(1,10))
+        story+=[ht,Spacer(1,10)]
 
-        story+=[HRFlowable(width=W,thickness=1,color=LN,spaceAfter=8),Paragraph(f'Modelo de Correlacion {indice} - Rendimiento',s_sec)]
-        dm=[['Ecuacion','R²',f'{indice} prom.'],[l['ecuacion'],f"{l['r2']:.3f}"+(' *' if l['r2']<0.5 else ''),f"{l['idx_prom']:.4f}"]]
-        story.append(tbl(dm,[8*cm,2.5*cm,5.5*cm])); story.append(Spacer(1,6))
-        if l['r2']<0.5: story.append(Paragraph('* R² bajo: interpretar con precaucion.',s_not))
-        story.append(Spacer(1,6))
-        rt=Table([[Paragraph('RENDIMIENTO ESTIMADO',s_rl)],
-                  [Paragraph(f"{fmt(convertir_rinde(l['rinde_est'],unidad),2)} {unidad} &nbsp;|&nbsp; {fmt(l['rinde_est']*l['area_ha']/1000.0,1)} tn totales",s_rv)]],colWidths=[W])
-        rt.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,-1),GM),('TOPPADDING',(0,0),(0,0),8),('BOTTOMPADDING',(0,0),(0,0),4),
-                                 ('TOPPADDING',(0,1),(0,1),4),('BOTTOMPADDING',(0,1),(0,1),10),
-                                 ('LEFTPADDING',(0,0),(-1,-1),12),('RIGHTPADDING',(0,0),(-1,-1),12),('LINEABOVE',(0,0),(-1,0),3,OR)]))
-        story+=[rt,Spacer(1,12),HRFlowable(width=W,thickness=0.5,color=LN,spaceAfter=5),
-                Paragraph(f'Sentinel-2 L2A (Copernicus) | {indice} | Regresion lineal | {now}',s_fot)]
+        # Lista de bloques a renderizar: uno por indice
+        # Si hay datos_indices (modo ambos) iterar; si no, fallback a campos legacy
+        di = l.get('datos_indices')
+        if di and len(di) > 1:
+            bloques = [(idx, di[idx]) for idx in indices_pdf]
+            # En modo ambos: bloques mas compactos para que entren los 2 en una hoja
+            mapa_h_factor = 0.32   # mapa mas chico
+        elif di:
+            # un solo indice via datos_indices
+            idx_unico = list(di.keys())[0]
+            bloques = [(idx_unico, di[idx_unico])]
+            mapa_h_factor = 0.60
+        else:
+            # legacy
+            bloques = [(indice, {
+                'mapa_buf': l['mapa_buf'], 'rinde_est': l['rinde_est'],
+                'r2': l['r2'], 'idx_prom': l['idx_prom'], 'ecuacion': l['ecuacion'],
+            })]
+            mapa_h_factor = 0.60
+
+        IH_local = W * mapa_h_factor
+        compacto = len(bloques) > 1  # menos espaciado entre elementos cuando hay 2 bloques
+
+        for bi, (idx_nom, dd) in enumerate(bloques):
+            # Titulo de la seccion (Imagen GNDVI / Imagen NDVI)
+            story.append(Paragraph(f'Imagen {idx_nom}', s_sec))
+            dd['mapa_buf'].seek(0)
+            story.append(RLImage(dd['mapa_buf'], width=W, height=IH_local))
+            story.append(Spacer(1, 4 if compacto else 8))
+
+            story.append(HRFlowable(width=W, thickness=0.7, color=LN, spaceAfter=4 if compacto else 6))
+            story.append(Paragraph(f'Modelo de Correlacion {idx_nom} - Rendimiento', s_sec))
+            dm = [['Ecuacion','R²',f'{idx_nom} prom.'],
+                  [dd['ecuacion'], f"{dd['r2']:.3f}" + (' *' if dd['r2']<0.5 else ''),
+                   f"{dd['idx_prom']:.4f}"]]
+            story.append(tbl(dm, [8*cm, 2.5*cm, 5.5*cm]))
+            if dd['r2'] < 0.5:
+                story.append(Paragraph('* R² bajo: interpretar con precaucion.', s_not))
+            story.append(Spacer(1, 3 if compacto else 6))
+
+            rt = Table([[Paragraph(f'RENDIMIENTO ESTIMADO ({idx_nom})' if compacto else 'RENDIMIENTO ESTIMADO', s_rl)],
+                       [Paragraph(f"{fmt(convertir_rinde(dd['rinde_est'], unidad), 2)} {unidad} &nbsp;|&nbsp; {fmt(dd['rinde_est']*l['area_ha']/1000.0, 1)} tn totales", s_rv)]],
+                       colWidths=[W])
+            rt.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,-1),GM),
+                                     ('TOPPADDING',(0,0),(0,0), 5 if compacto else 8),
+                                     ('BOTTOMPADDING',(0,0),(0,0),3),
+                                     ('TOPPADDING',(0,1),(0,1),3),
+                                     ('BOTTOMPADDING',(0,1),(0,1), 6 if compacto else 10),
+                                     ('LEFTPADDING',(0,0),(-1,-1),12),('RIGHTPADDING',(0,0),(-1,-1),12),
+                                     ('LINEABOVE',(0,0),(-1,0),3,OR)]))
+            story.append(rt)
+
+            # Separador entre bloques (no despues del ultimo)
+            if bi < len(bloques) - 1:
+                story.append(Spacer(1, 6))
+
+        if compacto:
+            # En modo ambos los bloques ocupan toda la pagina, omitir footer extra
+            pass
+        else:
+            story += [Spacer(1, 4), HRFlowable(width=W, thickness=0.5, color=LN, spaceAfter=3),
+                      Paragraph(f'Sentinel-2 L2A (Copernicus) | {", ".join(idx_nom for idx_nom,_ in bloques)} | Regresion lineal | {now}', s_fot)]
     doc.build(story)
 
 # ═══════════════════════════════════════════════
@@ -1014,34 +1162,48 @@ class Handler(http.server.BaseHTTPRequestHandler):
         print(f"DEBUG geo: olon={olon:.6f}, olat={olat:.6f}, plon={plon:.8f}, plat={plat:.8f}")
         print(f"DEBUG imagen shape: {b8.shape}, bbox lat=[{olat-b8.shape[0]*plat:.4f}, {olat:.4f}], lon=[{olon:.4f}, {olon+b8.shape[1]*plon:.4f}]")
         indices=calc_idx(b3,b4,b8,config['indice'])
-        idx_nom='GNDVI' if config['indice']=='gndvi' else 'NDVI' if config['indice']=='ndvi' else 'GNDVI'
-        img=indices.get('GNDVI',indices.get('NDVI'))
-        print(f"DEBUG indices keys: {list(indices.keys())}, img is None: {img is None}")
-        if img is None:
-            raise Exception(f"No se pudo calcular el indice {config['indice']}. Verificá que las bandas correctas esten en el ZIP.")
+        # Determinar que indices procesar segun lo elegido por el usuario
+        if config['indice'] == 'ambos':
+            indices_a_procesar = [k for k in ('GNDVI','NDVI') if k in indices]
+        elif config['indice'] == 'gndvi':
+            indices_a_procesar = ['GNDVI']
+        elif config['indice'] == 'ndvi':
+            indices_a_procesar = ['NDVI']
+        else:
+            indices_a_procesar = ['GNDVI']
+        print(f"DEBUG indices keys: {list(indices.keys())}, a procesar: {indices_a_procesar}")
+        if not indices_a_procesar or any(indices.get(i) is None for i in indices_a_procesar):
+            raise Exception(f"No se pudo calcular el/los indice(s) {indices_a_procesar}. Verificá las bandas en el ZIP.")
         lotes_res=[]
         for grupo in grupos:
-            pts=[]
+            # Normalizar puntos del grupo (lat/lon/rinde validos) - una sola vez
+            pts_base=[]
             for pt in grupo['puntos']:
                 try:
-                    lat_v = float(pt['lat'])
-                    lon_v = float(pt['lon'])
-                    rinde_v = float(pt['rinde'])
+                    lat_v = float(pt['lat']); lon_v = float(pt['lon']); rinde_v = float(pt['rinde'])
                 except (TypeError, ValueError):
-                    print(f"Punto ignorado (valor invalido): {pt}")
-                    continue
+                    print(f"Punto ignorado (valor invalido): {pt}"); continue
                 import math
                 if math.isnan(lat_v) or math.isnan(lon_v) or math.isnan(rinde_v):
-                    print(f"Punto ignorado (NaN): amb={pt['amb']}")
-                    continue
-                print(f"Punto: {pt['amb']} lat={lat_v} lon={lon_v} rinde={rinde_v}")
-                v=val_punto(img, lat_v, lon_v, olat, olon, plat, plon)
-                print(f"  -> val_punto={v}")
-                if v is not None:
-                    pts.append({'amb':pt['amb'],'lat':lat_v,'lon':lon_v,'rinde':rinde_v,'idx_val':v})
-            if len(pts)<2: raise Exception(f'El grupo "{grupo["nombre"]}" necesita al menos 2 puntos validos en la imagen.')
-            xg=np.array([p['idx_val'] for p in pts]); yg=np.array([p['rinde'] for p in pts])
-            sl,it,r,_,_=stats.linregress(xg,yg); r2=r**2
+                    print(f"Punto ignorado (NaN): amb={pt['amb']}"); continue
+                pts_base.append({'amb':pt['amb'],'lat':lat_v,'lon':lon_v,'rinde':rinde_v})
+
+            # Calcular pts (con idx_val), regresion (sl,it,r2) por cada indice
+            datos_por_idx = {}  # {'GNDVI': {'pts':..., 'sl':..., 'it':..., 'r2':...}, 'NDVI': {...}}
+            for idx_nom in indices_a_procesar:
+                img_idx = indices[idx_nom]
+                pts=[]
+                for pb in pts_base:
+                    v = val_punto(img_idx, pb['lat'], pb['lon'], olat, olon, plat, plon)
+                    print(f"Punto {pb['amb']} ({idx_nom}): lat={pb['lat']} lon={pb['lon']} rinde={pb['rinde']} -> idx_val={v}")
+                    if v is not None:
+                        pts.append({'amb':pb['amb'],'lat':pb['lat'],'lon':pb['lon'],'rinde':pb['rinde'],'idx_val':v})
+                if len(pts)<2:
+                    raise Exception(f'El grupo "{grupo["nombre"]}" necesita al menos 2 puntos validos en la imagen ({idx_nom}).')
+                xg=np.array([p['idx_val'] for p in pts]); yg=np.array([p['rinde'] for p in pts])
+                sl,it,r,_,_ = stats.linregress(xg,yg); r2 = r**2
+                datos_por_idx[idx_nom] = {'pts':pts,'sl':sl,'it':it,'r2':r2}
+
             for lote in grupo['lotes']:
                 poly=buscar_poly(lote['nombre'],records,polys,cl)
                 if poly is None:
@@ -1049,22 +1211,40 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     raise Exception(f'Lote "{lote["nombre"]}" no encontrado.\nColumna: "{cl}".\nDisponibles: {disp[:25]}')
                 ha_manual = float(lote.get('sup_ha', 0) or 0)
                 ha = ha_manual if ha_manual > 0 else area_ha(poly)
-                prom,_=val_lote(img,poly,olat,olon,plat,plon)
-                if prom is None: raise Exception(f'Sin pixeles validos en lote "{lote["nombre"]}".')
-                rinde_kgha = sl*prom+it
-                # rinde_est se guarda SIEMPRE en kg/ha (unidad interna).
-                # La conversion a la unidad elegida por el usuario se hace solo al mostrar.
-                ec=f"y = {sl:.2f} x {idx_nom} + ({it:.2f})"  
-                # Solo mostrar en el mapa los puntos que caen dentro de este lote
-                # (al mapa se le pasan los rindes ya convertidos para los rotulos)
-                pts_en_lote = [(p['amb'],p['lat'],p['lon'],convertir_rinde(p['rinde'],config['unidad']))
-                               for p in pts if pip(p['lon'], p['lat'], poly)]
-                mb=gen_mapa(img,poly,pts_en_lote,olat,olon,plat,plon,
-                            f"{idx_nom} - {lote['nombre']}",idx_nom,config['unidad'])
-                lotes_res.append({'nombre':lote['nombre'],'campo':lote['campo'],'cultivo':lote['cultivo'],
-                                  'variedad':grupo.get('variedad',''),'grupo_nombre':grupo['nombre'],
-                                  'area_ha':ha,'idx_prom':prom,'r2':r2,'rinde_est':rinde_kgha,'ecuacion':ec,
-                                  'puntos_datos':pts,'mapa_buf':mb})
+
+                # Calcular por cada indice: prom, rinde, mapa
+                datos_indices = {}
+                for idx_nom in indices_a_procesar:
+                    img_idx = indices[idx_nom]
+                    info = datos_por_idx[idx_nom]
+                    prom,_ = val_lote(img_idx,poly,olat,olon,plat,plon)
+                    if prom is None:
+                        raise Exception(f'Sin pixeles validos en lote "{lote["nombre"]}" ({idx_nom}).')
+                    rinde_kgha = info['sl']*prom + info['it']
+                    ec = f"y = {info['sl']:.2f} x {idx_nom} + ({info['it']:.2f})"
+                    pts_en_lote = [(p['amb'],p['lat'],p['lon'],convertir_rinde(p['rinde'],config['unidad']))
+                                   for p in info['pts'] if pip(p['lon'], p['lat'], poly)]
+                    mb = gen_mapa(img_idx,poly,pts_en_lote,olat,olon,plat,plon,
+                                  f"{idx_nom} - {lote['nombre']}",idx_nom,config['unidad'])
+                    datos_indices[idx_nom] = {
+                        'idx_prom':prom, 'r2':info['r2'], 'rinde_est':rinde_kgha,
+                        'ecuacion':ec, 'puntos_datos':info['pts'], 'mapa_buf':mb
+                    }
+
+                # Campos legacy (apuntan al primer indice procesado, que es GNDVI por defecto).
+                # Asi el codigo viejo del PDF/PPT que usa lote['rinde_est'], etc, sigue funcionando.
+                primer = datos_indices[indices_a_procesar[0]]
+                lotes_res.append({
+                    'nombre':lote['nombre'],'campo':lote['campo'],'cultivo':lote['cultivo'],
+                    'variedad':grupo.get('variedad',''),'grupo_nombre':grupo['nombre'],
+                    'area_ha':ha,
+                    # legacy
+                    'idx_prom':primer['idx_prom'], 'r2':primer['r2'],
+                    'rinde_est':primer['rinde_est'], 'ecuacion':primer['ecuacion'],
+                    'puntos_datos':primer['puntos_datos'], 'mapa_buf':primer['mapa_buf'],
+                    # nuevo: datos por indice
+                    'datos_indices':datos_indices, 'indices_procesados':indices_a_procesar,
+                })
         with tempfile.NamedTemporaryFile(suffix='.pdf',delete=False) as tmp: pdf_path=tmp.name
         gen_pdf(lotes_res,config,pdf_path)
         with open(pdf_path,'rb') as f: b64=base64.b64encode(f.read()).decode()
