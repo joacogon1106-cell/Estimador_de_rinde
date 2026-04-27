@@ -200,13 +200,25 @@ def col_lote(records):
     return list(records[0].keys())[0]
 
 def buscar_poly(nombre, records, polys, col):
+    """Busca el poligono del lote por nombre. Si hay multiples records con el
+    mismo nombre, los une en un multipart (los lotes pueden estar partidos en
+    varios features dentro del shapefile)."""
     nb=norm(nombre); nbs=nb.replace(' ','')
     cols=[c for c in [col,'LOTEPLANO','LOTE','LOTE_PLANO'] if records and c in records[0]]
+    # Pasada 1: matcheo exacto - acumular TODOS los polys que coinciden
+    matches_exact = []
     for rec,p in zip(records,polys):
         if not p: continue
         for c in cols:
             shp=norm(rec.get(c,''))
-            if shp==nb or shp.replace(' ','')==nbs: return p
+            if shp==nb or shp.replace(' ','')==nbs:
+                matches_exact.append(p)
+                break
+    if matches_exact:
+        if len(matches_exact) == 1:
+            return matches_exact[0]
+        return {'multipart': matches_exact}
+    # Pasada 2: matcheo parcial (substring) - solo el primero por compatibilidad
     for rec,p in zip(records,polys):
         if not p: continue
         for c in cols:
